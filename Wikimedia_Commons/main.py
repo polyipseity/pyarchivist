@@ -6,7 +6,7 @@ from .. import (
     VERSION as _VER,
 )
 from aiohttp import ClientSession as _CliSess, TCPConnector as _TCPConn
-from anyio import Path as _Path, open_file as _open
+from anyio import Path as _Path
 from argparse import (
     ArgumentParser as _ArgParser,
     Namespace as _NS,
@@ -256,7 +256,7 @@ async def main(args: Args):
                 async def fetch(page: _Response.Page):
                     filename = page.title.split(":", 2)[-1]
                     async with sess.get(page.imageinfo[0].url) as resp, (
-                        await _open(args.dest / filename, mode="wb")
+                        await (args.dest / filename).open(mode="wb")
                     ) as file:
                         _LOGGER.info(f"Fetching '{filename}'")
                         async for chunk in resp.content.iter_any():
@@ -275,8 +275,8 @@ async def main(args: Args):
                     _LOGGER.info(f"Indexing {len(entries)} files")
 
                     async with (
-                        await _open(
-                            args.dest / args.index, mode="r+t", **_OPEN_TXT_OPTS
+                        await (args.dest / args.index).open(
+                            mode="r+t", **_OPEN_TXT_OPTS
                         )
                     ) as file:
                         text = await file.read()
