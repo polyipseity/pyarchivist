@@ -1,5 +1,4 @@
 # -*- coding: UTF-8 -*-
-from distutils.version import StrictVersion as _SVer
 from logging import INFO as _INFO, basicConfig as _basicConfig, getLogger as _getLogger
 from sys import version as _ver
 from typing import Literal as _Lit, TypedDict as _TDict, final as _fin
@@ -28,7 +27,7 @@ AUTHORS = [
     }
 ]
 NAME = "pyarchivist"
-VERSION = _SVer("1.0.1")
+VERSION = "1.0.1"
 
 _basicConfig(level=_INFO)
 LOGGER = _getLogger(NAME)
