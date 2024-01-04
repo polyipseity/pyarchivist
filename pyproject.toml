@@ -34,7 +34,7 @@ dependencies = [
 	"html2text>=2020.1.16",
 	"yarl>=1.9.2",
 ]
-description = ""
+description = "Archive things from the Internet."
 dynamic = ["version",]
 keywords = []
 license = {file = "LICENSE.txt"}
