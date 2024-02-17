@@ -27,7 +27,7 @@ AUTHORS = [
     }
 ]
 NAME = "pyarchivist"
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 
 _basicConfig(level=_INFO)
 LOGGER = _getLogger(NAME)
