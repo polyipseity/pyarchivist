@@ -243,7 +243,7 @@ async def main(args: Args):
                 _LOGGER.info(f"Fetching {len(pages)} files")
 
                 async def fetch(page: _Response.Page):
-                    filename = page.title.split(":", 2)[-1]
+                    filename = page.title.split(":", 1)[-1]
                     async with (
                         sess.get(page.imageinfo[0].url) as resp,
                         await (args.dest / filename).open(mode="wb") as file,
