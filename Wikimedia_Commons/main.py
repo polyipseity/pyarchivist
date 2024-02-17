@@ -100,64 +100,53 @@ class _Response(_Proto):
         __slots__: _ClsVar = ()
 
         @property
-        def value(self) -> str:
-            ...
+        def value(self) -> str: ...
 
         @property
-        def source(self) -> str:
-            ...
+        def source(self) -> str: ...
 
     @_fin
     class ExtMetadata(_Proto):
         __slots__: _ClsVar = ()
 
         @property
-        def Artist(self) -> "_Response.Value | None":
-            ...
+        def Artist(self) -> "_Response.Value | None": ...
 
         @property
-        def LicenseShortName(self) -> "_Response.Value | None":
-            ...
+        def LicenseShortName(self) -> "_Response.Value | None": ...
 
         @property
-        def LicenseUrl(self) -> "_Response.Value | None":
-            ...
+        def LicenseUrl(self) -> "_Response.Value | None": ...
 
     @_fin
     class ImageInfoEntry(_Proto):
         __slots__: _ClsVar = ()
 
         @property
-        def descriptionurl(self) -> str:
-            ...
+        def descriptionurl(self) -> str: ...
 
         @property
-        def extmetadata(self) -> "_Response.ExtMetadata":
-            ...
+        def extmetadata(self) -> "_Response.ExtMetadata": ...
 
         @property
-        def url(self) -> str:
-            ...
+        def url(self) -> str: ...
 
     @_fin
     class Page(_Proto):
         __slots__: _ClsVar = ()
 
         @property
-        def title(self) -> str:
-            ...
+        def title(self) -> str: ...
 
         @property
-        def imageinfo(self) -> "_Seq[_Response.ImageInfoEntry]":
-            ...
+        def imageinfo(self) -> "_Seq[_Response.ImageInfoEntry]": ...
 
     @_fin
     class Query(_Proto):
         __slots__: _ClsVar = ()
 
         @property
-        def pages(self) -> "_Map[str, _Response.Page]":
-            ...
+        def pages(self) -> "_Map[str, _Response.Page]": ...
 
     query: Query
 
@@ -255,9 +244,10 @@ async def main(args: Args):
 
                 async def fetch(page: _Response.Page):
                     filename = page.title.split(":", 2)[-1]
-                    async with sess.get(page.imageinfo[0].url) as resp, (
-                        await (args.dest / filename).open(mode="wb")
-                    ) as file:
+                    async with (
+                        sess.get(page.imageinfo[0].url) as resp,
+                        await (args.dest / filename).open(mode="wb") as file,
+                    ):
                         _LOGGER.info(f"Fetching '{filename}'")
                         async for chunk in resp.content.iter_any():
                             await file.write(chunk)
@@ -274,10 +264,8 @@ async def main(args: Args):
                 else:
                     _LOGGER.info(f"Indexing {len(entries)} files")
 
-                    async with (
-                        await (args.dest / args.index).open(
-                            mode="r+t", **_OPEN_TXT_OPTS
-                        )
+                    async with await (args.dest / args.index).open(
+                        mode="r+t", **_OPEN_TXT_OPTS
                     ) as file:
                         text = await file.read()
                         async with _TskGrp() as grp:
