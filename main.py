@@ -1,16 +1,18 @@
 # -*- coding: UTF-8 -*-
 from . import VERSION as _VER
-from .Wikimedia_Commons import main as _wm_c_main
+from .Wikimedia_Commons import (
+    __name__ as _wm_c_name,
+    __package__ as _wm_c_package,
+    main as _wm_c_main,
+)
 from argparse import ArgumentParser as _ArgParser
 from functools import partial as _part
-from sys import modules as _mods
 from typing import Callable as _Call
 
 
 def parser(parent: _Call[..., _ArgParser] | None = None):
-    prog0 = _mods[__name__].__package__
-    prog = prog0 if prog0 else __name__
-    del prog0
+    prog = __package__ or __name__
+
     parser = (_ArgParser if parent is None else parent)(
         prog=f"python -m {prog}",
         description="archive data",
@@ -29,6 +31,8 @@ def parser(parent: _Call[..., _ArgParser] | None = None):
         required=True,
     )
     _wm_c_main.parser(
-        _part(subparsers.add_parser, _wm_c_main.__package__.replace(f"{prog}.", ""))
+        _part(
+            subparsers.add_parser, (_wm_c_package or _wm_c_name).replace(f"{prog}.", "")
+        )
     )
     return parser

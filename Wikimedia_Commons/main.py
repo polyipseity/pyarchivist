@@ -20,7 +20,7 @@ from html2text import HTML2Text as _HTM2TXT
 from itertools import chain as _chain
 from json import loads as _loads
 from re import MULTILINE as _MULTILINE, compile as _re_comp
-from sys import exit as _exit, modules as _mods
+from sys import exit as _exit
 from types import SimpleNamespace as _SimpNS
 from typing import (
     Callable as _Call,
@@ -300,9 +300,8 @@ async def main(args: Args):
 
 
 def parser(parent: _Call[..., _ArgParser] | None = None):
-    prog0 = _mods[__name__].__package__
-    prog = prog0 if prog0 else __name__
-    del prog0
+    prog = __package__ or __name__
+
     parser = (_ArgParser if parent is None else parent)(
         prog=f"python -m {prog}",
         description="archive data from Wikimedia Commons",
