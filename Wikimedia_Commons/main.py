@@ -12,7 +12,7 @@ from argparse import (
     Namespace as _NS,
     ONE_OR_MORE as _ONE_OR_MORE,
 )
-from asyncio import TaskGroup as _TskGrp, gather as _gather
+from asyncio import create_task, gather as _gather
 from dataclasses import dataclass as _dc
 from enum import IntFlag as _IntFlag, auto as _auto, unique as _unq
 from functools import partial as _part, wraps as _wraps
@@ -267,10 +267,10 @@ async def main(args: Args):
                     async with await (args.dest / args.index).open(
                         mode="r+t", **_OPEN_TXT_OPTS
                     ) as file:
-                        text = await file.read()
-                        async with _TskGrp() as grp:
-                            grp.create_task(file.seek(0))
-                            paragraphs = text.strip().split("\n\n")
+                        read = await file.read()
+                        seek = create_task(file.seek(0))
+                        try:
+                            paragraphs = read.strip().split("\n\n")
                             index = {
                                 _pct_unesc(match[2]): match[0]
                                 for match in _INDEX_FORMAT_PATTERN.finditer(
@@ -286,8 +286,11 @@ async def main(args: Args):
                                 )
                             )
                             text = "\n\n".join(paragraphs) + "\n"
-                        await file.write(text)
-                        await file.truncate()
+                            await seek
+                            await file.write(text)
+                            await file.truncate()
+                        finally:
+                            seek.cancel()
             except Exception:
                 _LOGGER.exception("Error indexing")
                 ec |= ExitCode.INDEX_ERROR
