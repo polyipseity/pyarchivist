@@ -68,7 +68,7 @@ class ExitCode(_IntFlag):
 class Args:
     inputs: _Seq[str]
     dest: _Path
-    index: str | None
+    index: _Path | None
 
     def __post_init__(self):
         object.__setattr__(self, "inputs", tuple(self.inputs))
@@ -264,7 +264,15 @@ async def main(args: Args):
                 else:
                     _LOGGER.info(f"Indexing {len(entries)} files")
 
-                    async with await (args.dest / args.index).open(
+                    await args.index.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        file = await args.index.open(mode="xt", **_OPEN_TXT_OPTS)
+                    except FileExistsError:
+                        pass
+                    else:
+                        await file.aclose()
+
+                    async with await args.index.open(
                         mode="r+t", **_OPEN_TXT_OPTS
                     ) as file:
                         read = await file.read()
@@ -331,8 +339,8 @@ def parser(parent: _Call[..., _ArgParser] | None = None):
         "-i",
         "--index",
         action="store",
-        type=str,
-        help="Markdown-based index filename",
+        type=_Path,
+        help="Markdown-based index file",
     )
     parser.add_argument(
         "inputs",
