@@ -1,4 +1,3 @@
-# -*- coding: UTF-8 -*-
 from .. import (
     LOGGER as _LOGGER,
     OPEN_TEXT_OPTIONS as _OPEN_TXT_OPTS,

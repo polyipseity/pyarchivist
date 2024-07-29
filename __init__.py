@@ -1,4 +1,3 @@
-# -*- coding: UTF-8 -*-
 from logging import getLogger as _getLogger
 from sys import version as _ver
 from typing import Literal as _Lit, TypedDict as _TDict, final as _fin

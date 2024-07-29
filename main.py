@@ -1,4 +1,3 @@
-# -*- coding: UTF-8 -*-
 from . import VERSION as _VER
 from .Wikimedia_Commons import (
     __name__ as _wm_c_name,
