@@ -19,12 +19,12 @@ class _OpenOptions(_TDict):
 
 
 # update `pyproject.toml`
-AUTHORS = [
+AUTHORS = (
     {
         "name": "William So",
         "email": "polyipseity@gmail.com",
-    }
-]
+    },
+)
 NAME = "pyarchivist"
 VERSION = "1.1.1"
 
