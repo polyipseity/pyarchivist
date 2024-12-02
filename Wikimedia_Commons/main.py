@@ -138,7 +138,7 @@ class _Response(_Proto):
         def title(self) -> str: ...
 
         @property
-        def imageinfo(self) -> "_Seq[_Response.ImageInfoEntry]": ...
+        def imageinfo(self) -> "_Seq[_Response.ImageInfoEntry] | None": ...
 
     @_fin
     class Query(_Proto):
@@ -243,6 +243,8 @@ async def main(args: Args):
 
                 async def fetch(page: _Response.Page):
                     filename = page.title.split(":", 1)[-1]
+                    if page.imageinfo is None:
+                        raise ValueError(f"Failed to fetch '{filename}'")
                     async with (
                         sess.get(page.imageinfo[0].url) as resp,
                         await (args.dest / filename).open(mode="wb") as file,
