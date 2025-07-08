@@ -24,12 +24,14 @@ from types import SimpleNamespace as _SimpNS
 from typing import (
     Callable as _Call,
     ClassVar as _ClsVar,
+    Collection as _Coll,
     Generic as _Generic,
     Iterable as _Iter,
     Mapping as _Map,
     Protocol as _Proto,
     Sequence as _Seq,
     TypeVar as _TVar,
+    cast as _cast,
     final as _fin,
 )
 from urllib.parse import unquote as _pct_unesc, quote as _pct_esc
@@ -46,10 +48,12 @@ _T = _TVar("_T")
 class ExitCode(_IntFlag):
     __slots__: _ClsVar = ()
 
-    GENERIC_ERROR: _ClsVar = _auto()
-    QUERY_ERROR: _ClsVar = _auto()
-    FETCH_ERROR: _ClsVar = _auto()
-    INDEX_ERROR: _ClsVar = _auto()
+    GENERIC_ERROR = _auto()
+    QUERY_ERROR = _auto()
+    FETCH_ERROR = _auto()
+    INDEX_ERROR = _auto()
+    QUERY_ERROR_PARTIAL = _auto()
+    FETCH_ERROR_PARTIAL = _auto()
 
 
 @_fin
@@ -68,6 +72,7 @@ class Args:
     inputs: _Seq[str]
     dest: _Path
     index: _Path | None
+    ignore_individual_errors: bool
 
     def __post_init__(self):
         object.__setattr__(self, "inputs", tuple(self.inputs))
@@ -155,12 +160,41 @@ _INDEX_FORMAT_PATTERN = _re_comp(
 )
 
 
+def _handle_partial_errors(
+    results: _Coll[_T | BaseException],
+    *,
+    ignore_individual_errors: bool,
+    error_message: str = "Error",
+) -> tuple[bool, _Coll[_T]]:
+    error = False
+    base_exceptions = tuple(
+        query for query in results if isinstance(query, BaseException)
+    )
+    exceptions = tuple(exc for exc in base_exceptions if isinstance(exc, Exception))
+    if len(exceptions) < len(base_exceptions):
+        raise BaseExceptionGroup(error_message, base_exceptions)
+    if exceptions:
+        exception_group = ExceptionGroup(error_message, exceptions)
+        if not ignore_individual_errors:
+            raise exception_group
+        try:
+            raise exception_group
+        except ExceptionGroup:
+            _LOGGER.exception(error_message)
+            error = True
+    return error, tuple(
+        result for result in results if not isinstance(result, BaseException)
+    )
+
+
 def _index_formatter(filename: str, credit: str):
     escaped = filename.replace("\\", "\\\\").replace("]", "\\]")
     return f"- [{escaped}]({_pct_esc(filename, safe=_PERCENT_ESCAPE_SAFE)}): {credit}"
 
 
 def _credit_formatter(page: _Response.Page):
+    assert page.imageinfo is not None
+
     htm_esc = _HTM2TXT()
     htm_esc.emphasis_mark = "_"
     htm_esc.ignore_links = True
@@ -225,12 +259,20 @@ async def main(args: Args):
                         )
                     return data.query.pages.items()
 
-                queries: _Seq[_Iter[tuple[str, _Response.Page]]] = await _gather(
+                queries = await _gather(
                     *map(
                         lambda idx: query(inputs[idx : idx + _QUERY_LIMIT]),
                         range(0, len(inputs), _QUERY_LIMIT),
-                    )
+                    ),
+                    return_exceptions=True,
                 )
+                error, queries = _handle_partial_errors(
+                    queries,
+                    ignore_individual_errors=args.ignore_individual_errors,
+                    error_message="Error querying",
+                )
+                if error:
+                    ec |= ExitCode.QUERY_ERROR_PARTIAL
                 pages = tuple(
                     {id: page for id, page in _chain.from_iterable(queries)}.values()
                 )
@@ -254,7 +296,14 @@ async def main(args: Args):
                             await file.write(chunk)
                     return filename, _index_formatter(filename, _credit_formatter(page))
 
-                entries: _Seq[tuple[str, str]] = await _gather(*map(fetch, pages))
+                entries = await _gather(*map(fetch, pages), return_exceptions=True)
+                error, entries = _handle_partial_errors(
+                    entries,
+                    ignore_individual_errors=args.ignore_individual_errors,
+                    error_message="Error fetching",
+                )
+                if error:
+                    ec |= ExitCode.FETCH_ERROR_PARTIAL
             except Exception:
                 _LOGGER.info("Error fetching")
                 ec |= ExitCode.FETCH_ERROR
@@ -344,6 +393,13 @@ def parser(parent: _Call[..., _ArgParser] | None = None):
         help="Markdown-based index file",
     )
     parser.add_argument(
+        "--ignore-individual-errors",
+        action="store_true",
+        default=False,
+        help="ignore errors from individual files",
+        dest="ignore_individual_errors",
+    )
+    parser.add_argument(
         "inputs",
         action="store",
         nargs=_ONE_OR_MORE,
@@ -358,6 +414,7 @@ def parser(parent: _Call[..., _ArgParser] | None = None):
                 inputs=args.inputs,
                 dest=args.dest,
                 index=args.index,
+                ignore_individual_errors=args.ignore_individual_errors,
             )
         )
 
