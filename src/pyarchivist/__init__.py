@@ -28,7 +28,7 @@ AUTHORS = (
     },
 )
 NAME = "pyarchivist"
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 
 LOGGER = _getLogger(NAME)
 OPEN_TEXT_OPTIONS: _OpenOptions = {
