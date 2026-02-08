@@ -1,6 +1,8 @@
 from logging import getLogger as _getLogger
 from sys import version as _ver
-from typing import Literal as _Lit, TypedDict as _TDict, final as _fin
+from typing import Literal as _Lit
+from typing import TypedDict as _TDict
+from typing import final as _fin
 
 
 @_fin

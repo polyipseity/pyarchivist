@@ -1,41 +1,77 @@
-from .. import (
-    LOGGER as _LOGGER,
-    OPEN_TEXT_OPTIONS as _OPEN_TXT_OPTS,
-    USER_AGENT as _U_AG,
-    VERSION as _VER,
-)
-from aiohttp import ClientSession as _CliSess, TCPConnector as _TCPConn
-from anyio import Path as _Path
 from argparse import (
-    ArgumentParser as _ArgParser,
-    Namespace as _NS,
     ONE_OR_MORE as _ONE_OR_MORE,
 )
-from asyncio import create_task, gather as _gather
+from argparse import (
+    ArgumentParser as _ArgParser,
+)
+from argparse import (
+    Namespace as _NS,
+)
+from asyncio import create_task
+from asyncio import gather as _gather
 from dataclasses import dataclass as _dc
-from enum import IntFlag as _IntFlag, auto as _auto, unique as _unq
-from functools import partial as _part, wraps as _wraps
-from html2text import HTML2Text as _HTM2TXT
+from enum import IntFlag as _IntFlag
+from enum import auto as _auto
+from enum import unique as _unq
+from functools import partial as _part
+from functools import wraps as _wraps
 from itertools import chain as _chain
 from json import loads as _loads
-from re import MULTILINE as _MULTILINE, compile as _re_comp
+from re import MULTILINE as _MULTILINE
+from re import compile as _re_comp
 from sys import exit as _exit
 from types import SimpleNamespace as _SimpNS
 from typing import (
     Callable as _Call,
+)
+from typing import (
     ClassVar as _ClsVar,
+)
+from typing import (
     Collection as _Coll,
+)
+from typing import (
     Generic as _Generic,
+)
+from typing import (
     Iterable as _Iter,
+)
+from typing import (
     Mapping as _Map,
+)
+from typing import (
     Protocol as _Proto,
+)
+from typing import (
     Sequence as _Seq,
+)
+from typing import (
     TypeVar as _TVar,
-    cast as _cast,
+)
+from typing import (
     final as _fin,
 )
-from urllib.parse import unquote as _pct_unesc, quote as _pct_esc
+from urllib.parse import quote as _pct_esc
+from urllib.parse import unquote as _pct_unesc
+
+from aiohttp import ClientSession as _CliSess
+from aiohttp import TCPConnector as _TCPConn
+from anyio import Path as _Path
+from html2text import HTML2Text as _HTM2TXT
 from yarl import URL as _URL
+
+from .. import (
+    LOGGER as _LOGGER,
+)
+from .. import (
+    OPEN_TEXT_OPTIONS as _OPEN_TXT_OPTS,
+)
+from .. import (
+    USER_AGENT as _U_AG,
+)
+from .. import (
+    VERSION as _VER,
+)
 
 _MAX_CONCURRENT_REQUESTS_PER_HOST = 1
 _PERCENT_ESCAPE_SAFE = "/,"

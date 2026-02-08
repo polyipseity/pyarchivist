@@ -1,12 +1,17 @@
-from . import VERSION as _VER
-from .Wikimedia_Commons import (
-    __name__ as _wm_c_name,
-    __package__ as _wm_c_package,
-    main as _wm_c_main,
-)
 from argparse import ArgumentParser as _ArgParser
 from functools import partial as _part
 from typing import Callable as _Call
+
+from . import VERSION as _VER
+from .Wikimedia_Commons import (
+    __name__ as _wm_c_name,
+)
+from .Wikimedia_Commons import (
+    __package__ as _wm_c_package,
+)
+from .Wikimedia_Commons import (
+    main as _wm_c_main,
+)
 
 
 def parser(parent: _Call[..., _ArgParser] | None = None):
