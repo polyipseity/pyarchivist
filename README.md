@@ -30,4 +30,3 @@ Notes:
 
 - Prefer `uv` for deterministic installs and `uv.lock` for reproducible environments.
 - `requirements.txt` is deprecated in favor of `pyproject.toml` and dependency groups.
-
