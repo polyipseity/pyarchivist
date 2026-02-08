@@ -17,8 +17,8 @@ This repository uses a small, consistent set of tooling for formatting and linti
 - Format repository (auto-fix where possible):
 
 ```powershell
-uv run --locked ruff check --fix .
-uv run --locked ruff format .
+uv run ruff check --fix .
+uv run ruff format .
 ```
 
 - Run static type checks (pyright/Pylance): ensure `pyrightconfig.json` uses `typeCheckingMode: "strict"` for CI parity.
@@ -32,7 +32,7 @@ uv run --locked ruff format .
 - The repository provides `.pre-commit-config.yaml` with recommended `pre-commit-hooks` and a Ruff hook that attempts to fix problems automatically. Install and run locally:
 
 ```powershell
-uv sync --locked --dev
+uv sync --dev
 pre-commit install
 pre-commit run --all-files
 ```

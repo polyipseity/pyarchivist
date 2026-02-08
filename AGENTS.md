@@ -19,6 +19,7 @@ Adjust the list above to match this submodule; paths below assume this folder is
 ## Dependencies
 
 - Declare project dependencies in `pyproject.toml` (this is the authoritative source).
+- Use `uv` (astral-sh) for dependency management and prefer `uv sync` (use `--locked` in CI to enforce the lockfile) over using `pip install` directly.
 - If `requirements.txt` exists in this repository it is a compatibility/delegation helper and should not be treated as the authoritative dependency list — it delegates to `setup.py`/packaging and does not itself store the canonical dependencies.
 
 ## Quick start (development)
@@ -45,7 +46,7 @@ Adjust the list above to match this submodule; paths below assume this folder is
 
     ```powershell
     # Add pytest to dev extras or install via uv, then run:
-    uv run --locked pytest -q
+    uv run pytest -q
     ```
 
 ## Formatting & linting
@@ -55,8 +56,8 @@ Adjust the list above to match this submodule; paths below assume this folder is
 
     ```powershell
     # Ensure ruff is in dev extras and run via uv for reproducibility
-    uv run --locked ruff check --fix .
-    uv run --locked ruff format .
+    uv run ruff check --fix .
+    uv run ruff format .
     ```
 
 ## Agent workflow reminders
@@ -136,14 +137,14 @@ Notes:
 
     ```powershell
     # Add build to dev extras and run via uv
-    uv run --locked -m build
+    uv run -m build
     ```
 
 - To publish to PyPI, use `twine` and keep credentials out of the repo (use CI secrets):
 
     ```powershell
     # Add twine to dev extras and run via uv
-    uv run --locked -m twine upload dist/*
+    uv run -m twine upload dist/*
     ```
 
 ## Security and reporting
@@ -225,12 +226,12 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
 ## Formatting & Tooling (Ruff + UV) 🔧
 
 - We use **Ruff** as the single Python formatting/linting tool. Do not add `black` or `isort` to CI or dev-dependencies.
-- Use `uv` for Python dependency management and installs. Prefer deterministic installs with `uv sync --locked` and commit `uv.lock` if present.
+- Use `uv` for Python dependency management and installs. Prefer deterministic installs with `uv sync` and use `--locked` in CI or when you need to strictly enforce the lockfile; commit `uv.lock` if present.
 - Local formatting commands:
 
     ```powershell
-    uv run --locked ruff check --fix .
-    uv run --locked ruff format .
+    uv run ruff check --fix .
+    uv run ruff format .
     ```
 
 - Use `pre-commit` to register quick hooks (see `.pre-commit-config.yaml`). Install via:
@@ -262,15 +263,15 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
 2. Install development extras (use `uv`):
 
     ```powershell
-    uv sync --locked --dev
+    uv sync --dev
     ```
 
 3. Run format & checks before committing:
 
     ```powershell
-    uv run --locked ruff check --fix .
+    uv run ruff check --fix .
     pre-commit run --all-files
-    uv run --locked pytest -q
+    uv run pytest -q
     ```
 
 ## VS Code setup 🧭

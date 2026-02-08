@@ -15,21 +15,21 @@ Local development quick start:
 2. Install development extras (use `uv`):
 
     ```powershell
-    uv sync --locked --dev
+    uv sync --dev
     ```
 
 3. Run formatting, linters and tests before committing:
 
     ```powershell
-    uv run --locked ruff check --fix .
+    uv run ruff check --fix .
     pre-commit run --all-files
-    uv run --locked pytest -q
+    uv run pytest -q
     ```
 
 Script & CI conventions:
 
 - Prefer `uv run` for invoking tools when a `pnpm` wrapper is not used.
-- CI workflows should install dependencies deterministically (`uv sync --locked`).
+- CI workflows should install dependencies deterministically (use `uv sync --locked` in CI).
 - Ensure tests and ruff checks run on PRs; `AGENTS.md` lists the CI expectations.
 
 Commit conventions:
