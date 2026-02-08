@@ -22,9 +22,11 @@ Local development quick start:
 
     ```powershell
     uv run ruff check --fix .
-    pre-commit run --all-files
+    prek run --all-files
     uv run pytest -q
     ```
+
+- Agents and contributors should prefer `prek` for pre-commit-style hooks (it can read `.pre-commit-config.yaml` or use `prek.toml`).
 
 Script & CI conventions:
 
@@ -40,7 +42,6 @@ Commit conventions:
 Agent & automation rules:
 
 - Agents must run the same format & check steps locally (using `uv` wrappers)
-  before making commits or opening PRs. This includes running pre-commit hooks
-  and the test suite.
+  before making commits or opening PRs. This includes running pre-commit-style hooks (via `prek`) and the test suite.
 - Agents must ask clarifying questions if intent is ambiguous rather than
   guessing when correctness matters.

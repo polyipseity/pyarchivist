@@ -2,18 +2,18 @@
 
 This document provides step-by-step guidance for common local workflows:
 
-Pre-commit hooks (local):
+Pre-commit-style hooks (local, using `prek`):
 
-- Install `pre-commit` into the dev extras (ensure it's in `pyproject.toml` dev group),
+- Install `prek` into the dev extras (ensure it's in `pyproject.toml` dev group),
   then run:
 
     ```powershell
     uv sync --dev
-    pre-commit install
-    pre-commit run --all-files
+    prek install
+    prek run --all-files
     ```
 
-- If a hook auto-fixes files, re-run `pre-commit run --all-files` to verify no
+- If a hook auto-fixes files, re-run `prek run --all-files` to verify no
   further changes are required.
 
 Formatting & linting:

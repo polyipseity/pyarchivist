@@ -27,17 +27,25 @@ uv run ruff format .
 
 - Use the editor's Ruff/pyright integration where available. Keep the editor settings consistent with `.editorconfig` and `pyrightconfig.json`.
 
-## Pre-commit and local checks
+## Pre-commit-style checks (prek)
 
-- The repository provides `.pre-commit-config.yaml` with recommended `pre-commit-hooks` and a Ruff hook that attempts to fix problems automatically. Install and run locally:
+- The repository provides `.pre-commit-config.yaml` for compatibility and we recommend a native `prek.toml` for `prek`-first configuration. The same hooks (for example `pre-commit-hooks` and the Ruff hooks) work with `prek`.
+
+Install and run locally:
 
 ```powershell
 uv sync --dev
-pre-commit install
-pre-commit run --all-files
+prek install
+prek run --all-files
 ```
 
-- If a hook is too strict for the repo's needs (for example `forbid-submodules` in a repo that uses submodules intentionally), adjust the `.pre-commit-config.yaml` accordingly.
+- If a hook is too strict for the repo's needs (for example `forbid-submodules` in a repo that uses submodules intentionally), adjust the `prek.toml` (or `.pre-commit-config.yaml`) accordingly.
+
+## Notes
+
+- These hooks are a recommended baseline. If a particular hook is undesired, remove or configure that hook in `prek.toml`.
+- Keep hook repositories pinned (set `rev`) to an explicit release to ensure reproducible behaviour.
+
 
 ## Markdown & other formats
 

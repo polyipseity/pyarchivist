@@ -11,7 +11,7 @@ Conventional commits:
 Commit body & wrapping:
 
 - Wrap commit body lines to **100 characters** or fewer. This is enforced by
-  commitlint/pre-commit in some projects and keeps patches readable.
+  commitlint/`prek` (or similar) in some projects and keeps patches readable.
 
 Signed release commits & tags:
 
@@ -27,7 +27,7 @@ Signed release commits & tags:
 
 Pre-commit & validation:
 
-- Run `pre-commit run --all-files` locally before pushing changes.
+- Run `prek run --all-files` locally before pushing changes (or run individual hooks with `prek run <hook-id>`).
 - Ensure tests and linters pass; CI will re-run these and block the PR if they fail.
 
 Agent & automation notes:

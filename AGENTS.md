@@ -74,15 +74,17 @@ Adjust the list above to match this submodule; paths below assume this folder is
 - Docstrings & type annotations: Modules, classes, functions, and tests SHOULD include clear module-level docstrings and type annotations for public APIs and test functions. Prefer PEP 585 / PEP 604 style hints and `collections.abc` where applicable.
 - Prefer `Ruff` as the single Python formatting/linting tool; do not add `black` or `isort` to CI or dev-dependencies.
 
-## Pre-commit hooks
+## Pre-commit-style hooks (prek)
 
-Use `pre-commit` to install hooks locally if a `.pre-commit-config.yaml` exists:
+Use `prek` to install hooks locally. `prek` can read an existing `.pre-commit-config.yaml`, but we recommend adding a native `prek.toml` (see below):
 
 ```powershell
-# Add pre-commit to dev extras, then:
-uv sync
-pre-commit install
-pre-commit run --all-files
+# Add `prek` to dev extras, then:
+uv sync --dev
+prek install
+
+# Run all configured hooks against the repository:
+prek run --all-files
 ```
 
 ## Branching & pull request workflow
@@ -189,7 +191,7 @@ Core instructions (add under `.github/instructions/`):
 - `architecture.instructions.md` — Overall repository & archive layout and important invariants.
 - `archive-format.instructions.md` — Expected layout, naming, and metadata for archives and `index.md` files.
 - `developer-workflows.instructions.md` — Local development tooling, running tests, formatting, and release steps.
-- `common-workflows.instructions.md` — Common developer tasks and checklist (pre-commit, pre-push, working with archives).
+- `common-workflows.instructions.md` — Common developer tasks and checklist (`prek` hooks, pre-push, working with archives).
 - `editing-guidelines.instructions.md` — Formatting, markdown and metadata conventions, and recommended editors.
 - `security.instructions.md` — Handling secrets, encryption, and private metadata (GPG usage, private.yaml.gpg conventions).
 - `dependencies.instructions.md` — How to install platform dependencies (Python, uv) and manage `uv.lock`.
@@ -199,7 +201,7 @@ If you add additional instruction files, reference them here and add brief summa
 
 Additional canonical instruction files in this repository (see `.github/instructions/`):
 
-- `formatting.instructions.md` — Ruff configuration, pre-commit integration, and editor guidance.
+- `formatting.instructions.md` — Ruff configuration, `prek` integration, and editor guidance.
 - `testing.instructions.md` — Test structure, async testing rules, running pytest locally, and CI expectations.
 - `release.instructions.md` — Release checklist, GPG-signed version commit, tagging, and CI publishing guidance.
 
@@ -234,18 +236,18 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
     uv run ruff format .
     ```
 
-- Use `pre-commit` to register quick hooks (see `.pre-commit-config.yaml`). Install via:
+- Use `prek` to register quick hooks (see `.pre-commit-config.yaml` or `prek.toml`). Install via:
 
     ```powershell
-    uv sync
-    pre-commit install
-    pre-commit run --all-files
+    uv sync --dev
+    prek install
+    prek run --all-files
     ```
 
 ## Agent commits & release policy 🧾
 
 - Use **Conventional Commits** for all changes: `type(scope): short description`.
-- Wrap commit body lines to **100 characters** or fewer — failing to do so may be blocked by commitlint/pre-commit rules.
+- Wrap commit body lines to **100 characters** or fewer — failing to do so may be blocked by commitlint/`prek` rules.
 - When changing production code add or update tests. Include short rationale in the commit body for non-trivial design decisions.
 - Release workflow (semantic versioning):
   - Update version in `__init__.py` only and commit with message equal to the version (GPG-signed).
@@ -270,7 +272,7 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
 
     ```powershell
     uv run ruff check --fix .
-    pre-commit run --all-files
+    prek run --all-files
     uv run pytest -q
     ```
 
