@@ -59,6 +59,20 @@ Adjust the list above to match this submodule; paths below assume this folder is
     uv run --locked ruff format .
     ```
 
+## Agent workflow reminders
+
+- **Read relevant skill and instruction files before use.** When performing tasks related to archiving, read the relevant `SKILL.md` or `.instructions.md` files under `.github/` first.
+- **Ask instead of guessing.** If behaviour or intent is ambiguous, request clarification rather than making assumptions.
+- **Use the Todo List Tool for multi-step tasks.** Plan steps, mark one step `in-progress`, complete it, and continue; keep the todo list updated.
+
+## Agent Code Conventions
+
+- Use `os.PathLike` for file/script identifiers: APIs that accept file/script identifiers must accept `os.PathLike` (for example, `pathlib.Path`) and call sites should pass `Path(__file__)` or another `os.PathLike` instance. When a string path is required use `os.fspath(path_like)` rather than `str(path_like)`.
+- Use timezone-aware UTC datetimes: prefer `datetime.now(timezone.utc)` rather than `datetime.utcnow()` and keep ISO timestamps timezone-aware.
+- Imports must be at module top-level (no inline/runtime imports). This is enforced by Ruff's `import-outside-top-level` rule (PLC0415).
+- Docstrings & type annotations: Modules, classes, functions, and tests SHOULD include clear module-level docstrings and type annotations for public APIs and test functions. Prefer PEP 585 / PEP 604 style hints and `collections.abc` where applicable.
+- Prefer `Ruff` as the single Python formatting/linting tool; do not add `black` or `isort` to CI or dev-dependencies.
+
 ## Pre-commit hooks
 
 Use `pre-commit` to install hooks locally if a `.pre-commit-config.yaml` exists:
@@ -165,7 +179,119 @@ Notes:
 
 - Optionally add CI, PyPI, and coverage badges to the top of `README.md` for quick status visibility.
 
+---
+
+## Documentation Structure 🔎
+
+Core instructions (add under `.github/instructions/`):
+
+- `architecture.instructions.md` — Overall repository & archive layout and important invariants.
+- `archive-format.instructions.md` — Expected layout, naming, and metadata for archives and `index.md` files.
+- `developer-workflows.instructions.md` — Local development tooling, running tests, formatting, and release steps.
+- `common-workflows.instructions.md` — Common developer tasks and checklist (pre-commit, pre-push, working with archives).
+- `editing-guidelines.instructions.md` — Formatting, markdown and metadata conventions, and recommended editors.
+- `security.instructions.md` — Handling secrets, encryption, and private metadata (GPG usage, private.yaml.gpg conventions).
+- `dependencies.instructions.md` — How to install platform dependencies (Python, uv) and manage `uv.lock`.
+- `git-commits.instructions.md` — Conventional commit headers, wrapping rules, and agent commit conventions.
+
+If you add additional instruction files, reference them here and add brief summaries.
+
+Additional canonical instruction files in this repository (see `.github/instructions/`):
+
+- `formatting.instructions.md` — Ruff configuration, pre-commit integration, and editor guidance.
+- `testing.instructions.md` — Test structure, async testing rules, running pytest locally, and CI expectations.
+- `release.instructions.md` — Release checklist, GPG-signed version commit, tagging, and CI publishing guidance.
+
+Link these documents from `AGENTS.md` when you add or update them so agents and maintainers can find authoritative workflows quickly.
+
+## Agent Skills (samples)
+
+Add skill folders under `.github/skills/` (each skill gets a `SKILL.md`):
+
+- `add-archive/` — Add or update an archive and update indexes.
+- `validate-archives/` — Run validation and consistency checks across the `archives/` tree.
+- `prune-archives/` — Prune, compress, or migrate archives following repository policy.
+- `update-index/` — Update `index.md` files and metadata after archive changes.
+- `edit-instructions/` — Update instruction files and document reasoning for non-trivial changes.
+
+Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and step-by-step instructions including checks to run locally.
+
+## Module exports & tests ✅
+
+- All modules intended to export a public surface MUST define an explicit `__all__` tuple at the top of the module (immediately after docstring and imports).
+- Test modules should set `__all__ = ()` (tests should not export public symbols).
+- For new functionality add tests mirroring the source tree under `tests/` (one test file per source module preferred).
+
+## Formatting & Tooling (Ruff + UV) 🔧
+
+- We use **Ruff** as the single Python formatting/linting tool. Do not add `black` or `isort` to CI or dev-dependencies.
+- Use `uv` for Python dependency management and installs. Prefer deterministic installs with `uv sync --locked` and commit `uv.lock` if present.
+- Local formatting commands:
+
+    ```powershell
+    uv run --locked ruff check --fix .
+    uv run --locked ruff format .
+    ```
+
+- Use `pre-commit` to register quick hooks (see `.pre-commit-config.yaml`). Install via:
+
+    ```powershell
+    uv sync
+    pre-commit install
+    pre-commit run --all-files
+    ```
+
+## Agent commits & release policy 🧾
+
+- Use **Conventional Commits** for all changes: `type(scope): short description`.
+- Wrap commit body lines to **100 characters** or fewer — failing to do so may be blocked by commitlint/pre-commit rules.
+- When changing production code add or update tests. Include short rationale in the commit body for non-trivial design decisions.
+- Release workflow (semantic versioning):
+  - Update version in `__init__.py` only and commit with message equal to the version (GPG-signed).
+  - Create a signed annotated tag `vX.Y.Z` (GPG) and push commit and tag.
+
+## Quick start (development) ⚡
+
+1. Create & activate a venv (Windows example):
+
+    ```powershell
+    python -m venv .venv
+    .\.venv\Scripts\Activate.ps1
+    ```
+
+2. Install development extras (use `uv`):
+
+    ```powershell
+    uv sync --locked --dev
+    ```
+
+3. Run format & checks before committing:
+
+    ```powershell
+    uv run --locked ruff check --fix .
+    pre-commit run --all-files
+    uv run --locked pytest -q
+    ```
+
+## VS Code setup 🧭
+
+- Recommend enabling `chat.useAgentsMdFile` in workspace settings to help agent workflows.
+- Use `.editorconfig` and `markdownlint.jsonc` for consistent Markdown formatting. Format docs via the CLI when needed.
+
+## Todo List Tool Reminder ✅
+
+- Plan multi-step or complex tasks with the Todo List Tool: mark one step `in-progress`, complete it, and mark it done before moving on.
+
+---
+
 ## Troubleshooting
+
+- Missing GPG key: ensure your key is available to Git and that `gpg` is in PATH.
+- Failed tests: run `pytest -q` locally; ensure dependencies are installed in the venv.
+
+## Maintainers
+
+- List of maintainers or contact details (add e-mail or GitHub handles here).
 
 - Missing GPG key: ensure your key is available to Git and that `gpg` is in PATH.
 - Failed tests: run `pytest -q` locally; ensure dependencies are installed in the venv.

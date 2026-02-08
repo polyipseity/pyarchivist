@@ -1,39 +1,40 @@
 [build-system]
-requires = ["setuptools>=65.6.3",]
+requires = ["setuptools>=81.0.0", "wheel>=0.46.0"]
 build-backend = "setuptools.build_meta"
 
 # update `__init__.py`
 [project]
 authors = [
-	{name = "William So", email = "polyipseity@gmail.com"},
+    {name = "William So", email = "polyipseity@gmail.com"},
 ]
 classifiers = [
-	"Development Status :: 5 - Production/Stable",
-	"Environment :: Console",
-	"Framework :: AsyncIO",
-	"Intended Audience :: Other Audience",
-	"License :: OSI Approved",
-	"License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
-	"Natural Language :: English",
-	"Operating System :: OS Independent",
-	"Programming Language :: Python",
-	"Programming Language :: Python :: 3",
-	"Programming Language :: Python :: 3.11",
-	"Programming Language :: Python :: 3.12",
-	"Topic :: Text Processing",
-	"Topic :: Text Processing :: General",
-	"Topic :: Text Processing :: Markup",
-	"Topic :: Text Processing :: Markup :: HTML",
-	"Topic :: Text Processing :: Markup :: Markdown",
-	"Topic :: Utilities",
-	"Typing :: Typed",
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Other Audience",
+    "License :: OSI Approved",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing",
+    "Topic :: Text Processing :: General",
+    "Topic :: Text Processing :: Markup",
+    "Topic :: Text Processing :: Markup :: HTML",
+    "Topic :: Text Processing :: Markup :: Markdown",
+    "Topic :: Utilities",
+    "Typing :: Typed",
 ]
 dependencies = [
-	"aiohttp>=3.8.4",
-	"anyio>=3.6.2",
-	"html2text>=2020.1.16",
-	"yarl>=1.9.2",
+    "aiohttp>=3.8.4",
+    "anyio>=3.6.2",
+    "html2text>=2020.1.16",
+    "yarl>=1.9.2",
 ]
+
 description = "Archive things from the Internet."
 dynamic = ["version",]
 keywords = []
@@ -44,6 +45,30 @@ requires-python = ">=3.12.0"
 
 [project.urls]
 repository = "https://github.com/polyipseity/pyarchivist.git"
+
+[dependency-groups]
+dev = [
+  "hypothesis>=6.151.0",
+  "pre-commit>=4.5.0",
+  "pytest>=7.0.0",
+  "pytest-asyncio>=1.3.0",
+  "pytest-cov>=7.0.0",
+  "pytest-xdist>=3.8.0",
+  "ruff>=0.15.0",
+]
+
+[tool.pytest.ini_options]
+addopts = ["--cov=./", "--cov-report=term-missing", "--dist=loadscope", "-n=auto", "--strict-markers"]
+testpaths = ["tests"]
+python_files = "test_*.py"
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+# Enable Pylint-derived rule that disallows imports outside module top-level
+# (import-outside-top-level / PLC0415). Ruff 0.12.0+ provides this rule.
+extend-select = ["I", "PLC0415"]
 
 [tool.setuptools.dynamic]
 version = {attr = "pyarchivist.VERSION"}
