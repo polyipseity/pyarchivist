@@ -10,6 +10,7 @@ Dependency management:
   possible.
 - Use `uv` (astral-sh) for deterministic installs and `uv.lock` for reproducible
   install snapshots.
+- For packaging, prefer the `uv_build` PEP 517 build backend for pure-Python projects. Add `uv_build` to `pyproject.toml` under `[build-system].requires`, and include an upper bound (for example: `uv_build>=0.10.0,<0.11.0`) to ensure compatibility with `uv`.
 
 Creating an environment:
 

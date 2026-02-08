@@ -138,15 +138,17 @@ Notes:
 - To build artifacts locally:
 
     ```powershell
-    # Add build to dev extras and run via uv
-    uv run -m build
+    # Use uv's native build backend (uv_build) for pure-Python packages
+    # Ensure pyproject.toml [build-system].requires = ["uv_build>=0.10.0,<0.11.0"]
+    uv build --locked
     ```
 
 - To publish to PyPI, use `twine` and keep credentials out of the repo (use CI secrets):
 
     ```powershell
-    # Add twine to dev extras and run via uv
-    uv run -m twine upload dist/*
+    # Build artifacts with `uv build --locked` then upload with twine via uv
+    uv build --locked
+    uv run --locked twine upload dist/*
     ```
 
 ## Security and reporting

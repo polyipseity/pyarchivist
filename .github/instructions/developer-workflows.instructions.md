@@ -33,6 +33,7 @@ Script & CI conventions:
 
 - Prefer `uv run` for invoking tools when a `pnpm` wrapper is not used.
 - CI workflows should install dependencies deterministically (use `uv sync --locked` in CI).
+- Prefer the `uv_build` PEP 517 build backend for pure-Python projects; run packaging with `uv build --locked`. Add `uv_build` to `[build-system].requires` and pin it with an upper bound (for example: `uv_build>=0.10.0,<0.11.0`).
 - Ensure tests and ruff checks run on PRs; `AGENTS.md` lists the CI expectations.
 
 Commit conventions:

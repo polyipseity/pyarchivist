@@ -36,6 +36,10 @@ Testing:
 - When adding new behavior, add tests that reflect the intended usage. Keep
   tests small and focused; one test file per module is preferred.
 
+Packaging:
+
+- Build distributions locally with `uv build --locked`. Ensure `uv_build` is declared in `[build-system].requires` in `pyproject.toml`.
+
 Push & PR checks:
 
 - Ensure pre-commit and tests pass locally before creating a PR. CI will

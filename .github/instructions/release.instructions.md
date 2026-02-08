@@ -39,8 +39,9 @@ git push origin --tags
 5. Build artifacts and publish (CI can handle packaging and publishing; use a manual flow only when needed):
 
 ```powershell
-uv run -m build
-uv run -m twine upload dist/*
+# Build with uv: uses bundled uv_build if compatible
+uv build --locked
+uv run --locked twine upload dist/*
 ```
 
 ## Release notes
@@ -50,7 +51,7 @@ uv run -m twine upload dist/*
 ## CI & automation
 
 - Prefer publishing from CI using stored secrets (PyPI API tokens in CI secrets) and secure workflows.
-- Ensure the CI job performs the following checks before publishing: tests, linters, and package build.
+- Ensure the CI job performs the following checks before publishing: tests, linters, and package build. Use `uv build --locked` to create artifacts and ensure `pyproject.toml` declares `uv_build` in `[build-system].requires` (for example: `uv_build>=0.10.0,<0.11.0`).
 
 ## Post-release
 

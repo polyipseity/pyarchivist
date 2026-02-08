@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=81.0.0", "wheel>=0.46.0"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build"]
+build-backend = "uv_build"
 
 # update `__init__.py`
 [project]
@@ -36,12 +36,12 @@ dependencies = [
 ]
 
 description = "Archive things from the Internet."
-dynamic = ["version",]
 keywords = []
 license = {file = "LICENSE.txt"}
 name = "pyarchivist"
 readme = "README.md"
 requires-python = ">=3.12.0"
+version = "1.2.0"
 
 [project.urls]
 repository = "https://github.com/polyipseity/pyarchivist.git"
@@ -84,12 +84,6 @@ line-length = 88
 # Enable Pylint-derived rule that disallows imports outside module top-level
 # (import-outside-top-level / PLC0415). Ruff 0.12.0+ provides this rule.
 extend-select = ["I", "PLC0415"]
-
-[tool.setuptools.dynamic]
-version = {attr = "pyarchivist.VERSION"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
 
 [tool.uv]
 required-version = ">=0.10.0,<0.11.0"
