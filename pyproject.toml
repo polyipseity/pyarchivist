@@ -45,8 +45,8 @@ requires-python = ">=3.11.0"
 [project.urls]
 repository = "https://github.com/polyipseity/pyarchivist.git"
 
-[tool.setuptools]
-package-dir = {pyarchivist = "."}
-
 [tool.setuptools.dynamic]
-version = {attr = "VERSION"}
+version = {attr = "pyarchivist.VERSION"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
