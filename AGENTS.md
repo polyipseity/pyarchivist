@@ -97,12 +97,12 @@ prek run --all-files
 
 When publishing a new release, follow these steps and keep the release commit minimal:
 
-1. Update the version string in `__init__.py` to the new semantic version (e.g. `1.2.3`). Edit only this file in the release commit.
+1. Update the version string in `__init__.py` to the new semantic version (e.g. `1.2.3`). After changing the version (and before tagging), run `uv sync` to update `uv.lock` and commit the lockfile (either as part of the release commit or as an immediate follow-up commit). Edit only the version and lockfile in the release commit(s).
 
 2. Commit the change with the commit message equal to the bare version string (no prefix). The commit must be GPG-signed.
 
     ```powershell
-    git add __init__.py
+    git add pyproject.toml uv.lock src/pyarchivist/__init__.py
     git commit -S -m "1.2.3"
     ```
 
