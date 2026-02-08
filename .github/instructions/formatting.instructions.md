@@ -34,7 +34,7 @@ uv run ruff format .
 Install and run locally:
 
 ```powershell
-uv sync --dev
+uv sync --all-extras --dev
 prek install
 prek run --all-files
 ```

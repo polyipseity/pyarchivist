@@ -19,7 +19,7 @@ Adjust the list above to match this submodule; paths below assume this folder is
 ## Dependencies
 
 - Declare project dependencies in `pyproject.toml` (this is the authoritative source).
-- Use `uv` (astral-sh) for dependency management and prefer `uv sync` (use `--locked` in CI to enforce the lockfile) over using `pip install` directly.
+- Use `uv` (astral-sh) for dependency management and prefer `uv sync --all-extras --dev` (use `--locked --all-extras --dev` in CI to enforce the lockfile) over using `pip install` directly.
 - If `requirements.txt` exists in this repository it is a compatibility/delegation helper and should not be treated as the authoritative dependency list — it delegates to `setup.py`/packaging and does not itself store the canonical dependencies.
 
 ## Quick start (development)
@@ -36,10 +36,10 @@ Adjust the list above to match this submodule; paths below assume this folder is
     ```powershell
     # Using PEP 722 dependency groups (preferred)
     # Add dev extras to `pyproject.toml` (under [dependency-groups].dev), then install:
-    uv sync
+    uv sync --all-extras --dev
 
     # or, if using older tooling, install the editable package with extras
-    # (not recommended; prefer `uv sync`)
+    # (not recommended; prefer `uv sync --all-extras --dev`)
     ```
 
 3. Run tests (if tests exist):
@@ -80,7 +80,7 @@ Use `prek` to install hooks locally. `prek` can read an existing `.pre-commit-co
 
 ```powershell
 # Add `prek` to dev extras, then:
-uv sync --dev
+uv sync --all-extras --dev
 prek install
 
 # Run all configured hooks against the repository:
@@ -97,7 +97,7 @@ prek run --all-files
 
 When publishing a new release, follow these steps and keep the release commit minimal:
 
-1. Update the version string in `__init__.py` to the new semantic version (e.g. `1.2.3`). After changing the version (and before tagging), run `uv sync` to update `uv.lock` and commit the lockfile (either as part of the release commit or as an immediate follow-up commit). Edit only the version and lockfile in the release commit(s).
+1. Update the version string in `__init__.py` to the new semantic version (e.g. `1.2.3`). After changing the version (and before tagging), run `uv sync --all-extras --dev` to update `uv.lock` and commit the lockfile (either as part of the release commit or as an immediate follow-up commit). Edit only the version and lockfile in the release commit(s).
 
 2. Commit the change with the commit message equal to the bare version string (no prefix). The commit must be GPG-signed.
 
@@ -230,7 +230,7 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
 ## Formatting & Tooling (Ruff + UV) 🔧
 
 - We use **Ruff** as the single Python formatting/linting tool. Do not add `black` or `isort` to CI or dev-dependencies.
-- Use `uv` for Python dependency management and installs. Prefer deterministic installs with `uv sync` and use `--locked` in CI or when you need to strictly enforce the lockfile; commit `uv.lock` if present.
+- Use `uv` for Python dependency management and installs. Prefer deterministic installs with `uv sync --all-extras --dev` and use `--locked --all-extras --dev` in CI or when you need to strictly enforce the lockfile; commit `uv.lock` if present.
 - Local formatting commands:
 
     ```powershell
@@ -241,7 +241,7 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
 - Use `prek` to register quick hooks (see `.pre-commit-config.yaml` or `prek.toml`). Install via:
 
     ```powershell
-    uv sync --dev
+    uv sync --all-extras --dev
     prek install
     prek run --all-files
     ```
@@ -267,7 +267,7 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
 2. Install development extras (use `uv`):
 
     ```powershell
-    uv sync --dev
+    uv sync --all-extras --dev
     ```
 
 3. Run format & checks before committing:

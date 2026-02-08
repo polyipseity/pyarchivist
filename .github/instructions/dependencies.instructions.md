@@ -24,12 +24,12 @@ Creating an environment:
 2. Install dependencies:
 
     ```powershell
-    uv sync --dev
+    uv sync --all-extras --dev
     ```
 
 Notes for CI:
 
-- CI should run `uv sync --locked --dev` to install development extras
+- CI should run `uv sync --locked --all-extras --dev` to install development extras
   deterministically.
 - Pin long-lived tooling (for example: `ruff`, `pytest`, `pre-commit`) in the
   `[dependency-groups].dev` section to ensure reproducible behaviour.

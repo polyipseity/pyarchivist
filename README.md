@@ -16,7 +16,7 @@ Follow these steps to set up a reproducible development environment using `uv` (
 2. Install project dependencies and development extras:
 
     ```powershell
-    uv sync --dev
+    uv sync --all-extras --dev
     ```
 
 3. Run tests and formatting (use `uv` wrappers for reproducibility):

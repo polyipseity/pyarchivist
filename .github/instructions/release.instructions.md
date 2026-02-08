@@ -14,7 +14,7 @@ This document describes a minimal, reproducible release process for `pyarchivist
 
 ## Release checklist
 
-1. Update the package `__init__` with the new version string (for example, `1.2.3`). After updating the version and before tagging, run `uv sync` to refresh `uv.lock` and commit the lockfile (either as part of the release commit or as a separate follow-up commit).
+1. Update the package `__init__` with the new version string (for example, `1.2.3`). After updating the version and before tagging, run `uv sync --all-extras --dev` to refresh `uv.lock` and commit the lockfile (either as part of the release commit or as a separate follow-up commit).
 
 2. Commit using the version string as the commit message and sign the commit with GPG:
 
