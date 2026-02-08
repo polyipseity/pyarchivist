@@ -9,7 +9,7 @@ pyarchivist archives online content into the `archives/` tree and maintains inde
 ## Repository layout (top-level view)
 
 - `__init__.py` — package version and package metadata (update this when releasing).
-- `requirements.txt` (if present) — helper file that delegates to packaging (see Dependencies below).
+- `pyproject.toml` (canonical) — use `[dependency-groups].dev` for development extras; `requirements.txt` is deprecated in favor of `pyproject.toml`.
 - `tools/` or `scripts/` — helper scripts (if present).
 - `archives/` — archive storage and `index.md` management (if included in the submodule).
 - `tests/` — unit tests (pytest by default, if present).
@@ -30,28 +30,33 @@ Adjust the list above to match this submodule; paths below assume this folder is
     .\.venv\Scripts\Activate.ps1
     ```
 
-2. Install dependencies (if `requirements.txt` exists):
+2. Install development dependencies (recommended):
 
     ```powershell
-    pip install -r requirements.txt
+    # Using PEP 722 dependency groups (preferred)
+    # Add dev extras to `pyproject.toml` (under [dependency-groups].dev), then install:
+    uv sync
+
+    # or, if using older tooling, install the editable package with extras
+    # (not recommended; prefer `uv sync`)
     ```
 
 3. Run tests (if tests exist):
 
     ```powershell
-    pip install pytest
-    pytest -q
+    # Add pytest to dev extras or install via uv, then run:
+    uv run --locked pytest -q
     ```
 
 ## Formatting & linting
 
-- Recommended tools: `black`, `isort`, `flake8`, `mypy` (apply if configuration files are present).
+- Recommended tools: `ruff`, `flake8`, `mypy` (apply if configuration files are present).
 - To run formatters locally:
 
     ```powershell
-    pip install black isort
-    black .
-    isort .
+    # Ensure ruff is in dev extras and run via uv for reproducibility
+    uv run --locked ruff check --fix .
+    uv run --locked ruff format .
     ```
 
 ## Pre-commit hooks
@@ -59,7 +64,8 @@ Adjust the list above to match this submodule; paths below assume this folder is
 Use `pre-commit` to install hooks locally if a `.pre-commit-config.yaml` exists:
 
 ```powershell
-pip install pre-commit
+# Add pre-commit to dev extras, then:
+uv sync
 pre-commit install
 pre-commit run --all-files
 ```
@@ -115,15 +121,15 @@ Notes:
 - To build artifacts locally:
 
     ```powershell
-    pip install build
-    python -m build
+    # Add build to dev extras and run via uv
+    uv run --locked -m build
     ```
 
 - To publish to PyPI, use `twine` and keep credentials out of the repo (use CI secrets):
 
     ```powershell
-    pip install twine
-    python -m twine upload dist/*
+    # Add twine to dev extras and run via uv
+    uv run --locked -m twine upload dist/*
     ```
 
 ## Security and reporting
