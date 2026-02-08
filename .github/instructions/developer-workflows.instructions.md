@@ -27,6 +27,7 @@ Local development quick start:
     ```
 
 - Agents and contributors should prefer `prek` for pre-commit-style hooks (it can read `.pre-commit-config.yaml` or use `prek.toml`).
+- After changing `prek.toml` or on first setup, run `uv run prek install` to ensure hooks (including non-Python hooks like `commitlint`) are installed and available locally.
 
 Script & CI conventions:
 
@@ -37,6 +38,9 @@ Script & CI conventions:
 Commit conventions:
 
 - Use Conventional Commits (type(scope): description).
+- Commit messages are linted with `commitlint` (Conventional Commits rules). Locally this runs via a `prek` hook (`commit-msg` stage); CI also runs commitlint via `wagoid/commitlint-github-action`.
+- The repository commitlint configuration is authored as an ES module in `commitlint.config.mjs` (preferred). If you previously used a CommonJS config (`commitlint.config.cjs`), consider removing it to avoid ambiguity.
+- Developers should have **Node.js (LTS)** installed to run the local commitlint hook. Install from `https://nodejs.org/` if not present.
 - When modifying production code, add or update tests to cover behaviour changes.
 
 Agent & automation rules:
