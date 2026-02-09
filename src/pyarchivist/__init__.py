@@ -4,6 +4,15 @@ from typing import Literal as _Lit
 from typing import TypedDict as _TDict
 from typing import final as _fin
 
+__all__ = (
+    "AUTHORS",
+    "NAME",
+    "VERSION",
+    "LOGGER",
+    "OPEN_TEXT_OPTIONS",
+    "USER_AGENT",
+)
+
 
 @_fin
 class _OpenOptions(_TDict):

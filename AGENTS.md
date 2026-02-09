@@ -99,7 +99,7 @@ Adjust the list above to match this submodule; paths below assume this folder is
 - Use `os.PathLike` for file/script identifiers: APIs that accept file/script identifiers must accept `os.PathLike` (for example, `pathlib.Path`) and call sites should pass `Path(__file__)` or another `os.PathLike` instance. When a string path is required use `os.fspath(path_like)` rather than `str(path_like)`.
 - Use timezone-aware UTC datetimes: prefer `datetime.now(timezone.utc)` rather than `datetime.utcnow()` and keep ISO timestamps timezone-aware.
 - Imports must be at module top-level (no inline/runtime imports). This is enforced by Ruff's `import-outside-top-level` rule (PLC0415).
-- Docstrings & type annotations: Modules, classes, functions, and tests SHOULD include clear module-level docstrings and type annotations for public APIs and test functions. Prefer PEP 585 / PEP 604 style hints and `collections.abc` where applicable.
+- Docstrings & type annotations: Modules, classes, functions, and tests SHOULD include clear module-level docstrings and type annotations for public APIs and test functions. Prefer PEP 585 / PEP 604 style hints and `collections.abc` where applicable. Avoid using `from __future__ import annotations` in new code or tests; prefer native annotations (PEP 585/PEP 604) and, when needed to prevent runtime import cycles you can use `typing.TYPE_CHECKING` and string-literal annotations only in narrowly justified cases.
 - Prefer `Ruff` as the single Python formatting/linting tool; do not add `black` or `isort` to CI or dev-dependencies.
 
 ## Pre-commit-style hooks (prek)
@@ -251,9 +251,42 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
 
 ## Module exports & tests ✅
 
-- All modules intended to export a public surface MUST define an explicit `__all__` tuple at the top of the module (immediately after docstring and imports).
-- Test modules should set `__all__ = ()` (tests should not export public symbols).
-- For new functionality add tests mirroring the source tree under `tests/` (one test file per source module preferred).
+- All modules intended to export a public surface MUST define an explicit `__all__` **tuple** at the top of the module (immediately after the module docstring and imports). Use a tuple (`('name',)`) — do not use a list for `__all__`.
+
+- Placement and style rules:
+  - Put `__all__` directly after imports and any module docstring; keep the declaration visible and near the top of the file so reviewers can quickly see the module's public surface.
+  - Use string names that match the exact symbol names defined in the module (e.g. `__all__ = ('ExitCode', 'Args', 'main', 'parser')`).
+  - Do not include private names (leading underscore) in `__all__`.
+  - Test modules must set `__all__ = ()` — test modules should not export public symbols.
+
+- When to export:
+  - Export only the symbols that are intended to be part of the module's public API. Internal helpers should remain underscore-prefixed and omitted from `__all__`.
+  - For packages (`__init__.py`), prefer explicit re-exports and an `__all__` that documents the package surface. If the package intentionally has no public surface, use `__all__ = ()`.
+
+- Tests and automation:
+  - Add a module-level test that enforces `__all__` presence and that it is a tuple. The repository contains a test that parses source files' AST and asserts `__all__` is declared.
+  - When you add public symbols, update `__all__`, add tests for the new API, and update the package docs and `README.md` as appropriate.
+
+- Examples:
+
+```python
+"""Module docstring."""
+
+from typing import Any
+
+__all__ = ("public_function", "PUBLIC_CONSTANT")
+
+PUBLIC_CONSTANT = 1
+
+def public_function() -> None:
+    ...
+
+# Internal helper (not exported)
+def _internal() -> None:
+    ...
+```
+
+- Rationale: explicitly declaring `__all__` improves static analysis, makes the public surface self-documenting, and prevents accidental exports. Keep the `__all__` tuple updated as the public API evolves.
 
 ## Formatting & Tooling (Ruff + UV) 🔧
 

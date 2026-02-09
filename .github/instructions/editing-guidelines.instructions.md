@@ -20,9 +20,16 @@ Markdown:
 Python style & typing:
 
 - Prefer PEP 585/PEP 604 styles in annotations (e.g., `list[int]`, `str | None`).
+- Avoid `from __future__ import annotations`; prefer native annotations and use `typing.TYPE_CHECKING` when you need to import types for type-checking only.
 - Add module-level docstrings and type annotations for public APIs.
 - Add `__all__` tuples to modules that export a public surface. Test modules
   should set `__all__ = ()`.
+
+  Guidance:
+  - Use a **tuple** for `__all__`, not a list (e.g. `__all__ = ("name",)`).
+  - Place `__all__` immediately after the imports and module docstring for visibility.
+  - Export **only** intended public symbols and avoid adding underscore-prefixed names to `__all__`.
+  - When adding public API, update `__all__`, add or update tests, and document the change in the package docs.
 
 Tests:
 

@@ -13,6 +13,8 @@ from .Wikimedia_Commons import (
     main as _wm_c_main,
 )
 
+__all__ = ("parser",)
+
 
 def parser(parent: _Call[..., _ArgParser] | None = None):
     prog = __package__ or __name__

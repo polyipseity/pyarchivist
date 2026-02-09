@@ -73,6 +73,13 @@ from .. import (
     VERSION as _VER,
 )
 
+__all__ = (
+    "ExitCode",
+    "Args",
+    "main",
+    "parser",
+)
+
 _MAX_CONCURRENT_REQUESTS_PER_HOST = 1
 _PERCENT_ESCAPE_SAFE = "/,"
 _QUERY_LIMIT = 50
