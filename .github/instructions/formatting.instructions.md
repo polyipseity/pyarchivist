@@ -17,8 +17,8 @@ This repository uses a small, consistent set of tooling for formatting and linti
 - Format repository (auto-fix where possible):
 
 ```powershell
-uv run ruff check --fix .
-uv run ruff format .
+uv run ruff check --fix
+uv run ruff format
 ```
 
 - Run static type checks (pyright/Pylance): ensure `pyrightconfig.json` uses `typeCheckingMode: "strict"` for CI parity.
@@ -46,10 +46,19 @@ prek run --all-files
 - These hooks are a recommended baseline. If a particular hook is undesired, remove or configure that hook in `prek.toml`.
 - Keep hook repositories pinned (set `rev`) to an explicit release to ensure reproducible behaviour.
 
-
 ## Markdown & other formats
 
-- Use `markdownlint-cli2` (if present) for `.md` files and respect `.markdownlint.jsonc` when present.
+- Use `rumdl` (high-performance Rust linter/formatter) for `.md` files. `rumdl check` lints and fails on violations; `rumdl check --fix` attempts autofixes; `rumdl fmt` formats content. `rumdl` automatically detects existing `.markdownlint.jsonc` configuration and can import it into `pyproject.toml` via `rumdl import --pyproject .markdownlint.json`.
+
+- Install & run locally (recommended via `uv` dev extras):
+
+```powershell
+uv sync --all-extras --dev
+uv run --locked rumdl check
+uv run --locked rumdl check --fix
+uv run --locked rumdl fmt
+```
+
 - Avoid introducing conflicting formatters for Python files.
 
 ## Notes

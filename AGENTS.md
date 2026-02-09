@@ -51,13 +51,18 @@ Adjust the list above to match this submodule; paths below assume this folder is
 
 ## Formatting & linting
 
-- Recommended tools: `ruff`, `flake8`, `mypy` (apply if configuration files are present).
+- Recommended tools: `ruff`, `flake8`, `mypy` (apply if configuration files are present). For Markdown, use `rumdl` (fast Rust-based linter & formatter).
 - To run formatters locally:
 
     ```powershell
-    # Ensure ruff is in dev extras and run via uv for reproducibility
-    uv run ruff check --fix .
-    uv run ruff format .
+    # Ensure ruff and rumdl are in dev extras and run via uv for reproducibility
+    uv run ruff check --fix
+    uv run ruff format
+
+    # Markdown lint & format with rumdl
+    uv run --locked rumdl check
+    uv run --locked rumdl check --fix
+    uv run --locked rumdl fmt
     ```
 
 ## Agent workflow reminders
@@ -255,8 +260,8 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
 - Local formatting commands:
 
     ```powershell
-    uv run ruff check --fix .
-    uv run ruff format .
+    uv run ruff check --fix
+    uv run ruff format
     ```
 
 - Use `prek` to register quick hooks (see `.pre-commit-config.yaml` or `prek.toml`). Install via:

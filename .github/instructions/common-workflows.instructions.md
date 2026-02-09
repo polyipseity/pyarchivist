@@ -21,8 +21,8 @@ Formatting & linting:
 - Use Ruff as the single formatting/linting tool. Format via:
 
     ```powershell
-    uv run ruff check --fix .
-    uv run ruff format .
+    uv run ruff check --fix
+    uv run ruff format
     ```
 
 - Agents: see `.github/instructions/agent-workflows.instructions.md` for the runnable, minimal pre-PR checklist and CLI smoke tests (it contains examples and test pointers for the `Wikimedia_Commons` flow).
