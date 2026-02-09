@@ -1,3 +1,5 @@
+<!-- markdownlint-disable-file MD013 MD036 -->
+
 # pyarchivist
 
 Archive things from the Internet.

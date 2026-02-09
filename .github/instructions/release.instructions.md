@@ -3,6 +3,8 @@ name: Releases
 description: Release checklist and best practices for publishing new versions.
 ---
 
+<!-- markdownlint-disable-file MD013 MD036 -->
+
 # Releases
 
 This document describes a minimal, reproducible release process for `pyarchivist`.
@@ -25,20 +27,20 @@ git add pyproject.toml uv.lock src/pyarchivist/__init__.py
 git commit -S -m "1.2.3"
 ```
 
-3. Create a signed annotated tag:
+1. Create a signed annotated tag:
 
 ```powershell
 git tag -s -a v1.2.3 -m "v1.2.3"
 ```
 
-4. Push the release commit and the tag:
+1. Push the release commit and the tag:
 
 ```powershell
 git push origin HEAD
 git push origin --tags
 ```
 
-5. Build artifacts and publish (CI can handle packaging and publishing; use a manual flow only when needed):
+1. Build artifacts and publish (CI can handle packaging and publishing; use a manual flow only when needed):
 
 ```powershell
 # Build with uv: uses bundled uv_build if compatible

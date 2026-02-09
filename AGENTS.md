@@ -1,3 +1,5 @@
+<!-- markdownlint-disable-file MD013 MD036 -->
+
 # pyarchivist AGENTS
 
 Treat this folder as the project root. This document describes repository conventions, developer workflow, and release steps for the pyarchivist submodule.
@@ -326,7 +328,3 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
 
 - Missing GPG key: ensure your key is available to Git and that `gpg` is in PATH.
 - Failed tests: run `pytest` locally; ensure dependencies are installed in the venv.
-
-## Maintainers
-
-- List of maintainers or contact details (add e-mail or GitHub handles here).

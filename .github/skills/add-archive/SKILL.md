@@ -1,28 +1,30 @@
+<!-- markdownlint-disable-file MD013 MD036 -->
+
 # add-archive
 
-Purpose
--------
+## Purpose
+
 Provide a reproducible, auditable workflow for adding new content to `archives/` and updating the corresponding `index.md` entry. This skill is intended for agents and humans that perform archival ingestion.
 
-Inputs
-------
+## Inputs
+
 - Source identifier(s) to archive (e.g., Wikimedia title `File:Example.jpg`).
 - Destination directory under `archives/<topic>/<YYYY>/` or a temporary directory for tests.
 - Optional index file path (`index.md`) to update.
 
-Outputs
--------
+## Outputs
+
 - File(s) downloaded to the destination directory.
 - `index.md` updated with a properly formatted entry (`- [<filename>](<url-escaped-filename>): <credit>`).
 - A short validation summary (success/fail) and any error logs.
 
-Preconditions
--------------
+## Preconditions
+
 - Development environment set up (see `.github/instructions/agent-workflows.instructions.md`).
 - `uv` dev extras installed and pre-commit hooks configured (`prek install`).
 
-Steps
------
+## Steps
+
 1. Create a temporary destination directory (or use `archives/<topic>/<YYYY>/`).
 2. Run the CLI to fetch and index a sample file to ensure flow correctness:
 
@@ -34,13 +36,13 @@ Steps
 4. Run the unit tests and linting (`uv run pytest` and `uv run ruff check --fix .`).
 5. Commit changes using Conventional Commits and sign release commits if required.
 
-Checks
-------
+## Checks
+
 - The downloaded file exists in the destination directory.
 - `index.md` contains a new entry matching the expected format and is properly escaped.
 - No partial error `ExitCode` flags were raised unless expected.
 
-Notes
------
+## Notes
+
 - Use `tmp_path` and mocking for automated tests; avoid network calls in unit tests.
 - When in doubt about credit formatting or metadata, ask a human reviewer first.
