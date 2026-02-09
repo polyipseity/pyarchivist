@@ -16,6 +16,12 @@ Tests use `pytest` and `pytest-asyncio` for async test support. Test configurati
 - Test modules must define `__all__ = ()` at the top (tests do not export public symbols).
 - All tests and public code must include type annotations and module-level docstrings. Do not use `from __future__ import annotations` in tests; prefer using `typing.TYPE_CHECKING` and explicit string annotations only where necessary to avoid runtime imports.
 
+Docstrings & enforcement:
+
+- Tests should include a module-level docstring summarizing the file's purpose and any important rules.
+- Public functions and classes exported via `__all__` must include non-empty docstrings describing their behaviour and parameters.
+- A unit test (`tests/test_docstrings.py`) is provided to assert that every module has a module-level docstring and that every exported function/class has a docstring. Agents should run the test suite to confirm compliance before opening PRs.
+
 Enforcing `__all__`:
 
 - Add a unit test that parses all repository modules' AST to check for a top-level `__all__` assignment and assert that it is a tuple of string constants. This avoids importing modules (which can execute top-level code) while ensuring the `__all__` policy is followed.

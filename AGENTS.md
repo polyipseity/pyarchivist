@@ -72,6 +72,7 @@ Adjust the list above to match this submodule; paths below assume this folder is
 - **Read relevant skill and instruction files before use.** When performing tasks related to archiving, read the relevant `SKILL.md` or `.instructions.md` files under `.github/` first.
 - **Ask instead of guessing.** If behaviour or intent is ambiguous, request clarification rather than making assumptions.
 - **Use the Todo List Tool for multi-step tasks.** Plan steps, mark one step `in-progress`, complete it, and continue; keep the todo list updated.
+- **Document everything.** Ensure modules and exported public symbols include clear module-level and object docstrings. Run `uv run pytest tests/test_docstrings.py` as part of your checks to validate docstring compliance.
 
 ## Project-specific notes for agents ⚡
 

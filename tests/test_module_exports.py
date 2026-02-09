@@ -23,6 +23,12 @@ ROOT = Path(".").resolve()
 
 
 def _find_py_files() -> list[Path]:
+    """Return a sorted list of Python file paths under `src/` and `tests/`.
+
+    The helper parallels the module traversal used in repository checks and
+    is deterministic (sorted) for consistent test output.
+    """
+
     files: list[Path] = []
 
     for path in (ROOT / "src").rglob("*.py"):
@@ -75,6 +81,12 @@ def _has_all_tuple(node: ast.Module) -> tuple[bool, str]:
 
 
 def test_all_tuple_present_and_is_tuple() -> None:
+    """Assert that every module declares `__all__` as a tuple of strings.
+
+    The test parses AST for each file and reports per-file failures for
+    missing or malformed `__all__` assignments.
+    """
+
     failures: list[str] = []
 
     for path in _find_py_files():

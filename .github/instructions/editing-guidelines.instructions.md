@@ -21,7 +21,7 @@ Python style & typing:
 
 - Prefer PEP 585/PEP 604 styles in annotations (e.g., `list[int]`, `str | None`).
 - Avoid `from __future__ import annotations`; prefer native annotations and use `typing.TYPE_CHECKING` when you need to import types for type-checking only.
-- Add module-level docstrings and type annotations for public APIs.
+- Add module-level docstrings and type annotations for public APIs. Public modules, classes and functions should include clear, concise docstrings describing purpose, parameters and return values where applicable. Prefer Google-style docstrings (short summary line, blank line, optional extended description and sections for Args, Returns, Raises) for consistency across the repository.
 - Add `__all__` tuples to modules that export a public surface. Test modules
   should set `__all__ = ()`.
 

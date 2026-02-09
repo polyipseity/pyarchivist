@@ -1,3 +1,11 @@
+"""Wikimedia Commons archive implementation.
+
+This module implements the query, fetch and indexing flow for files on
+Wikimedia Commons. It provides a top-level `main` coroutine and a `parser`
+factory for the CLI subcommand. Helper utilities and small types used across
+the flow are declared here as well.
+"""
+
 from argparse import (
     ONE_OR_MORE as _ONE_OR_MORE,
 )
@@ -89,6 +97,13 @@ _T = _TVar("_T")
 @_fin
 @_unq
 class ExitCode(_IntFlag):
+    """Exit codes representing various error and partial-error conditions.
+
+    Each member corresponds to a phase or a class of failure that may occur
+    during a run. The bits can be combined to represent multiple simultaneous
+    failure modes (for example partial fetch errors plus a generic error).
+    """
+
     __slots__: _ClsVar = ()
 
     GENERIC_ERROR = _auto()
@@ -112,6 +127,15 @@ class ExitCode(_IntFlag):
     slots=True,
 )
 class Args:
+    """Immutable container for parsed CLI arguments.
+
+    Attributes:
+        inputs: sequence of input titles (strings)
+        dest: destination path where files will be written
+        index: optional index file path (Markdown)
+        ignore_individual_errors: if True, continue on individual file errors
+    """
+
     inputs: _Seq[str]
     dest: _Path
     index: _Path | None
@@ -209,6 +233,16 @@ def _handle_partial_errors(
     ignore_individual_errors: bool,
     error_message: str = "Error",
 ) -> tuple[bool, _Coll[_T]]:
+    """Inspect a collection of results and propagate or aggregate errors.
+
+    The `results` iterable may contain successful values or exception
+    instances (when `gather(..., return_exceptions=True)` was used). This
+    helper separates exceptions from values, optionally logs/raises grouped
+    exceptions and returns a tuple `(error_flag, successful_results)` where
+    `error_flag` is True when any exceptions were encountered and swallowed
+    due to `ignore_individual_errors=True`.
+    """
+
     error = False
     base_exceptions = tuple(
         query for query in results if isinstance(query, BaseException)
@@ -231,11 +265,25 @@ def _handle_partial_errors(
 
 
 def _index_formatter(filename: str, credit: str):
+    """Format a Markdown index line for a file and its credit string.
+
+    The filename is escaped for Markdown compatibility and URL-escaped for
+    the link target. The returned string is suitable for appending to an
+    `index.md` paragraph handled by the indexing logic.
+    """
+
     escaped = filename.replace("\\", "\\\\").replace("]", "\\]")
     return f"- [{escaped}]({_pct_esc(filename, safe=_PERCENT_ESCAPE_SAFE)}): {credit}"
 
 
 def _credit_formatter(page: _Response.Page):
+    """Produce a credit string (HTML fragment) for an image page.
+
+    The function extracts author and license information from the page
+    metadata, sanitizes common 'Unknown' markers and returns a concise
+    HTML snippet linking back to the file description page on Commons.
+    """
+
     assert page.imageinfo is not None
 
     htm_esc = _HTM2TXT()
@@ -268,6 +316,17 @@ def _credit_formatter(page: _Response.Page):
 
 
 async def main(args: Args):
+    """Primary coroutine implementing the query-fetch-index flow.
+
+    Executes the following steps:
+    1. Query Wikimedia Commons for page and image metadata for requested inputs.
+    2. Fetch image binary content for the discovered pages.
+    3. Optionally update a Markdown index file using `_index_formatter`.
+
+    On error, the function will log and set appropriate `ExitCode` flags before
+    calling `sys.exit` with the resulting exit code.
+    """
+
     ec = ExitCode(0)
 
     try:
@@ -404,6 +463,11 @@ async def main(args: Args):
 
 
 def parser(parent: _Call[..., _ArgParser] | None = None):
+    """Return an argparse parser configured for the Wikimedia Commons subcommand.
+
+    When embedded, `parent` can be a callable that produces an `ArgumentParser`.
+    """
+
     prog = __package__ or __name__
 
     parser = (_ArgParser if parent is None else parent)(

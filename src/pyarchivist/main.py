@@ -1,3 +1,9 @@
+"""CLI utilities for pyarchivist.
+
+This module provides the top-level CLI `ArgumentParser` factory and wires
+in subcommands from subpackages.
+"""
+
 from argparse import ArgumentParser as _ArgParser
 from functools import partial as _part
 from typing import Callable as _Call
@@ -17,6 +23,12 @@ __all__ = ("parser",)
 
 
 def parser(parent: _Call[..., _ArgParser] | None = None):
+    """Return an ArgumentParser configured for the package CLI.
+
+    If a `parent` callable is provided it will be used to construct the
+    parser (useful when the command is embedded within another parser).
+    """
+
     prog = __package__ or __name__
 
     parser = (_ArgParser if parent is None else parent)(

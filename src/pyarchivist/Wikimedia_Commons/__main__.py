@@ -1,3 +1,9 @@
+"""Entry point for the `Wikimedia_Commons` subcommand.
+
+This module is executed when `python -m pyarchivist.Wikimedia_Commons` is run.
+It constructs the subcommand parser and invokes the selected action.
+"""
+
 from asyncio import run as _run
 from logging import INFO, basicConfig
 from sys import argv as _argv

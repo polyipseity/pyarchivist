@@ -1,3 +1,9 @@
+"""Module entry-point for command-line invocation.
+
+This module is executed when the package is run with `python -m pyarchivist`.
+It configures basic logging and executes the selected CLI subcommand.
+"""
+
 from asyncio import run as _run
 from logging import INFO, basicConfig
 from sys import argv as _argv

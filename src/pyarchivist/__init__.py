@@ -1,3 +1,18 @@
+"""pyarchivist package metadata and configuration.
+
+This module exposes package-level constants and a configured logger used by
+other modules in the package. Keep the package version here as the single
+source-of-truth for releases.
+
+Exports:
+- AUTHORS: author metadata
+- NAME: package name
+- VERSION: package version string
+- LOGGER: configured logger for the package
+- OPEN_TEXT_OPTIONS: defaults for opening text files
+- USER_AGENT: default HTTP User-Agent used by HTTP clients
+"""
+
 from logging import getLogger as _getLogger
 from sys import version as _ver
 from typing import Literal as _Lit
