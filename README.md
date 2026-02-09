@@ -22,7 +22,7 @@ Follow these steps to set up a reproducible development environment using `uv` (
 3. Run tests and formatting (use `uv` wrappers for reproducibility):
 
     ```powershell
-    uv run pytest -q
+    uv run pytest
     uv run ruff check --fix .
     ```
 

@@ -8,11 +8,10 @@ Conventional commits:
 - Use the Conventional Commit format (`type(scope): short description`).
   Example: `chore(tests): add async file factory fixture`.
 
-Commit body & wrapping:
+Commit header & body lengths:
 
-- Wrap commit body lines to **100 characters** or fewer. This is enforced by
-  commitlint/`prek` (or similar) in some projects and keeps patches readable.
-
+- Tooling enforces a **hard maximum of 100 characters** for both the commit subject/header and body lines (this is enforced by `commitlint` via `header-max-length` and `body-max-line-length`).
+- The repository prefers a **soft limit of 72 characters** for both subject/header and body lines. The `commitlint` configuration includes warning-level rules that will warn when lines exceed 72 characters but still allow up to 100 characters; aim to keep the subject ≤72 and wrap body lines at 72 for best readability.
 Signed release commits & tags:
 
 - Release commits that bump the package version MUST be signed with GPG.

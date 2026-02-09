@@ -46,7 +46,7 @@ Adjust the list above to match this submodule; paths below assume this folder is
 
     ```powershell
     # Add pytest to dev extras or install via uv, then run:
-    uv run pytest -q
+    uv run pytest
     ```
 
 ## Formatting & linting
@@ -65,6 +65,27 @@ Adjust the list above to match this submodule; paths below assume this folder is
 - **Read relevant skill and instruction files before use.** When performing tasks related to archiving, read the relevant `SKILL.md` or `.instructions.md` files under `.github/` first.
 - **Ask instead of guessing.** If behaviour or intent is ambiguous, request clarification rather than making assumptions.
 - **Use the Todo List Tool for multi-step tasks.** Plan steps, mark one step `in-progress`, complete it, and continue; keep the todo list updated.
+
+## Project-specific notes for agents ⚡
+
+- Quick CLI example (exercise Wikimedia_Commons flow):
+
+    ```powershell
+    # create a temporary dest and index, then run a sample
+    python -m pyarchivist Wikimedia_Commons -d .\tmp_dest -i .\tmp_index.md "File:Example.jpg"
+    ```
+
+- Index format: entries are Markdown lines of the shape `- [<filename>](<url-escaped-filename>): <credit>` — the repository uses `_INDEX_FORMAT_PATTERN` in `src/pyarchivist/Wikimedia_Commons/main.py` to parse and update index files.
+
+- Concurrency & batching: queries are batched by `_QUERY_LIMIT = 50` and the HTTP client uses `_MAX_CONCURRENT_REQUESTS_PER_HOST = 1` (see `Wikimedia_Commons/main.py`) — prefer small, deterministic runs when testing.
+
+- Error handling: failures surface via `ExitCode` flags (e.g., `ExitCode.QUERY_ERROR`) and partial errors are handled by `_handle_partial_errors` (which may raise `ExceptionGroup` / `BaseExceptionGroup`). When writing agent tests, assert expected exit codes and logged exceptions where applicable.
+
+- Version & release single source-of-truth: bump `src/pyarchivist/__init__.py::VERSION` and keep `pyproject.toml` in sync (there is a test `tests/pyarchivist/test___init__.py` that asserts this). Release commits must be GPG-signed and tag with `vX.Y.Z` as described below.
+
+- Tests & formatting: use `uv` wrappers for reproducible runs: `uv sync --all-extras --dev`, `uv run pytest`, `uv run ruff check --fix .`, and `prek run --all-files` for pre-commit hooks.
+
+- Files to read first (in order): `pyproject.toml`, `src/pyarchivist/__init__.py`, `src/pyarchivist/Wikimedia_Commons/main.py`, `.github/instructions/*`, `tests/`.
 
 ## Agent Code Conventions
 
@@ -249,7 +270,7 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
 ## Agent commits & release policy 🧾
 
 - Use **Conventional Commits** for all changes: `type(scope): short description`.
-- Wrap commit body lines to **100 characters** or fewer — failing to do so may be blocked by commitlint/`prek` rules.
+- Tooling enforces a **hard maximum of 100 characters** for both the commit subject/header and body lines, but the repository prefers a **soft limit of 72 characters** for readability. The `commitlint` configuration will **warn** when lines exceed 72 characters (soft limit) and will **fail** when lines exceed 100 characters (hard limit); aim to keep subject ≤72 and wrap body lines at 72 where possible.
 - When changing production code add or update tests. Include short rationale in the commit body for non-trivial design decisions.
 - Release workflow (semantic versioning):
   - Update version in `__init__.py` only and commit with message equal to the version (GPG-signed).
@@ -275,7 +296,7 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
     ```powershell
     uv run ruff check --fix .
     prek run --all-files
-    uv run pytest -q
+    uv run pytest
     ```
 
 ## VS Code setup 🧭
@@ -292,14 +313,14 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
 ## Troubleshooting
 
 - Missing GPG key: ensure your key is available to Git and that `gpg` is in PATH.
-- Failed tests: run `pytest -q` locally; ensure dependencies are installed in the venv.
+- Failed tests: run `pytest` locally; ensure dependencies are installed in the venv.
 
 ## Maintainers
 
 - List of maintainers or contact details (add e-mail or GitHub handles here).
 
 - Missing GPG key: ensure your key is available to Git and that `gpg` is in PATH.
-- Failed tests: run `pytest -q` locally; ensure dependencies are installed in the venv.
+- Failed tests: run `pytest` locally; ensure dependencies are installed in the venv.
 
 ## Maintainers
 

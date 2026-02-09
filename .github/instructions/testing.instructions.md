@@ -22,7 +22,7 @@ Tests use `pytest` and `pytest-asyncio` for async test support. Test configurati
 ## Running tests locally
 
 ```powershell
-uv run pytest -q
+uv run pytest
 # With coverage
 uv run pytest --cov=./ --cov-report=term-missing
 ```
@@ -37,6 +37,12 @@ uv run pytest --cov=./ --cov-report=term-missing
 - Aim for small, deterministic, and fast tests.
 - Use fixtures for shared setup. Keep fixture scope appropriate (function or module) for isolation and speed.
 - When changing behaviour, add or update tests to cover the change; keep coverage stable or improved.
+
+## Testing integration flows
+
+- For integration-like tests around `Wikimedia_Commons`, mock `aiohttp.ClientSession` and responses instead of calling the external API. Use `pytest` fixtures or `monkeypatch` to replace `ClientSession.get` with an async context manager that returns stubbed `.json()` and `.content` behaviour.
+- When asserting index updates, leverage the code's pattern: entries are formatted using `_index_formatter` and parsed with `_INDEX_FORMAT_PATTERN` (see `src/pyarchivist/Wikimedia_Commons/main.py`). Tests should assert the final `index.md` paragraph contains sorted entries and properly escaped filenames (backslashes and `]` are escaped by `_index_formatter`).
+- To verify error paths, assert exit codes produced by `ExitCode` flags (e.g., `ExitCode.QUERY_ERROR`, `ExitCode.FETCH_ERROR`) are reflected when invoking the CLI invocation coroutine; capture logs with `caplog` to assert expected logged messages for partial error handling.
 
 ## Common pitfalls
 

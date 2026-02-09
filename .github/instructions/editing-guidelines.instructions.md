@@ -6,7 +6,7 @@ in a consistent and review-friendly manner.
 General rules:
 
 - Use `UTF-8` encoding and preserve newline at end-of-file.
-- Keep paragraphs short and lines wrapped at 100 characters for commit bodies.
+- Keep paragraphs short and prefer wrapping commit body lines at **72 characters** for readability. The `commitlint` configuration will **warn** when lines exceed **72** (soft limit) and will **fail** when lines exceed **100** (hard limit). Aim to keep lines ≤72 for best readability.
 - Use `README.md` and `AGENTS.md` for high-level project guidance.
 
 Markdown:
