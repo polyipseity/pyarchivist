@@ -13,11 +13,9 @@ Exports:
 - USER_AGENT: default HTTP User-Agent used by HTTP clients
 """
 
-from logging import getLogger as _getLogger
-from sys import version as _ver
-from typing import Literal as _Lit
-from typing import TypedDict as _TDict
-from typing import final as _fin
+from logging import getLogger
+from sys import version
+from typing import Literal, TypedDict, final
 
 __all__ = (
     "AUTHORS",
@@ -29,10 +27,10 @@ __all__ = (
 )
 
 
-@_fin
-class _OpenOptions(_TDict):
+@final
+class _OpenOptions(TypedDict):
     encoding: str
-    errors: _Lit[
+    errors: Literal[
         "strict",
         "ignore",
         "replace",
@@ -41,7 +39,7 @@ class _OpenOptions(_TDict):
         "backslashreplace",
         "namereplace",
     ]
-    newline: None | _Lit["", "\n", "\r", "\r\n"]
+    newline: None | Literal["", "\n", "\r", "\r\n"]
 
 
 # update `pyproject.toml`
@@ -54,10 +52,10 @@ AUTHORS = (
 NAME = "pyarchivist"
 VERSION = "2.0.1"
 
-LOGGER = _getLogger(NAME)
+LOGGER = getLogger(NAME)
 OPEN_TEXT_OPTIONS: _OpenOptions = {
     "encoding": "UTF-8",
     "errors": "strict",
     "newline": None,
 }
-USER_AGENT = f"{NAME}/{VERSION} ({AUTHORS[0]['email']}) Python/{_ver}"
+USER_AGENT = f"{NAME}/{VERSION} ({AUTHORS[0]['email']}) Python/{version}"

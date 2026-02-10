@@ -4,25 +4,19 @@ This module provides the top-level CLI `ArgumentParser` factory and wires
 in subcommands from subpackages.
 """
 
-from argparse import ArgumentParser as _ArgParser
-from functools import partial as _part
-from typing import Callable as _Call
+from argparse import ArgumentParser
+from functools import partial
+from typing import Callable
 
-from . import VERSION as _VER
-from .Wikimedia_Commons import (
-    __name__ as _wm_c_name,
-)
-from .Wikimedia_Commons import (
-    __package__ as _wm_c_package,
-)
-from .Wikimedia_Commons import (
-    main as _wm_c_main,
-)
+from . import VERSION
+from .Wikimedia_Commons import __name__ as Wikimedia_Commons_name
+from .Wikimedia_Commons import __package__ as Wikimedia_Commons_package
+from .Wikimedia_Commons.main import parser as Wikimedia_Commons_parser
 
 __all__ = ("parser",)
 
 
-def parser(parent: _Call[..., _ArgParser] | None = None):
+def parser(parent: Callable[..., ArgumentParser] | None = None):
     """Return an ArgumentParser configured for the package CLI.
 
     If a `parent` callable is provided it will be used to construct the
@@ -31,7 +25,7 @@ def parser(parent: _Call[..., _ArgParser] | None = None):
 
     prog = __package__ or __name__
 
-    parser = (_ArgParser if parent is None else parent)(
+    parser = (ArgumentParser if parent is None else parent)(
         prog=f"python -m {prog}",
         description="archive data",
         add_help=True,
@@ -42,15 +36,18 @@ def parser(parent: _Call[..., _ArgParser] | None = None):
         "-v",
         "--version",
         action="version",
-        version=f"{prog} v{_VER}",
+        version=f"{prog} v{VERSION}",
         help="print version and exit",
     )
     subparsers = parser.add_subparsers(
         required=True,
     )
-    _wm_c_main.parser(
-        _part(
-            subparsers.add_parser, (_wm_c_package or _wm_c_name).replace(f"{prog}.", "")
+    Wikimedia_Commons_parser(
+        partial(
+            subparsers.add_parser,
+            (Wikimedia_Commons_package or Wikimedia_Commons_name).replace(
+                f"{prog}.", ""
+            ),
         )
     )
     return parser

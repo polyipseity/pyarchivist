@@ -35,6 +35,8 @@ This short reference is for AI agents and automation that will be making changes
 
 Agents should fail fast and report the first failing step with logs and commands to reproduce locally.
 
+- Agents should avoid aliasing imports to short, underscore-prefixed names (for example `from module import name as _name`). Prefer `from module import name` or `import module` and qualify names; only use `as` when necessary and document the reason.
+
 Docstrings: Ensure that modules and exported public symbols are documented. The test suite now includes `tests/test_docstrings.py` which asserts the presence of module-level docstrings and docstrings for exported functions and classes. Run the tests locally to validate docstring compliance before opening PRs.
 
 ## CLI smoke checks (how to exercise the main flow)

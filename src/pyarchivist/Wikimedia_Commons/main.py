@@ -6,80 +6,26 @@ factory for the CLI subcommand. Helper utilities and small types used across
 the flow are declared here as well.
 """
 
-from argparse import (
-    ONE_OR_MORE as _ONE_OR_MORE,
-)
-from argparse import (
-    ArgumentParser as _ArgParser,
-)
-from argparse import (
-    Namespace as _NS,
-)
-from asyncio import create_task
-from asyncio import gather as _gather
-from dataclasses import dataclass as _dc
-from enum import IntFlag as _IntFlag
-from enum import auto as _auto
-from enum import unique as _unq
-from functools import partial as _part
-from functools import wraps as _wraps
-from itertools import chain as _chain
-from json import loads as _loads
-from re import MULTILINE as _MULTILINE
-from re import compile as _re_comp
-from sys import exit as _exit
-from types import SimpleNamespace as _SimpNS
-from typing import (
-    Callable as _Call,
-)
-from typing import (
-    ClassVar as _ClsVar,
-)
-from typing import (
-    Collection as _Coll,
-)
-from typing import (
-    Generic as _Generic,
-)
-from typing import (
-    Iterable as _Iter,
-)
-from typing import (
-    Mapping as _Map,
-)
-from typing import (
-    Protocol as _Proto,
-)
-from typing import (
-    Sequence as _Seq,
-)
-from typing import (
-    TypeVar as _TVar,
-)
-from typing import (
-    final as _fin,
-)
-from urllib.parse import quote as _pct_esc
-from urllib.parse import unquote as _pct_unesc
+from argparse import ONE_OR_MORE, ArgumentParser, Namespace
+from asyncio import create_task, gather
+from collections.abc import Callable, Collection, Iterable
+from dataclasses import dataclass
+from enum import IntFlag, auto, unique
+from functools import partial, wraps
+from itertools import chain
+from json import loads
+from re import MULTILINE, compile
+from sys import exit
+from types import SimpleNamespace
+from typing import ClassVar, Generic, Mapping, Protocol, Sequence, TypeVar, final
+from urllib.parse import quote, unquote
 
-from aiohttp import ClientSession as _CliSess
-from aiohttp import TCPConnector as _TCPConn
-from anyio import Path as _Path
-from html2text import HTML2Text as _HTM2TXT
-from yarl import URL as _URL
+from aiohttp import ClientSession, TCPConnector
+from anyio import Path
+from html2text import HTML2Text
+from yarl import URL
 
-from .. import (
-    LOGGER as _LOGGER,
-)
-from .. import (
-    OPEN_TEXT_OPTIONS as _OPEN_TXT_OPTS,
-)
-from .. import (
-    USER_AGENT as _U_AG,
-)
-from .. import (
-    VERSION as _VER,
-)
+from .. import LOGGER, OPEN_TEXT_OPTIONS, USER_AGENT, VERSION
 
 __all__ = (
     "ExitCode",
@@ -91,12 +37,12 @@ __all__ = (
 _MAX_CONCURRENT_REQUESTS_PER_HOST = 1
 _PERCENT_ESCAPE_SAFE = "/,"
 _QUERY_LIMIT = 50
-_T = _TVar("_T")
+_T = TypeVar("_T")
 
 
-@_fin
-@_unq
-class ExitCode(_IntFlag):
+@final
+@unique
+class ExitCode(IntFlag):
     """Exit codes representing various error and partial-error conditions.
 
     Each member corresponds to a phase or a class of failure that may occur
@@ -104,18 +50,18 @@ class ExitCode(_IntFlag):
     failure modes (for example partial fetch errors plus a generic error).
     """
 
-    __slots__: _ClsVar = ()
+    __slots__: ClassVar = ()
 
-    GENERIC_ERROR = _auto()
-    QUERY_ERROR = _auto()
-    FETCH_ERROR = _auto()
-    INDEX_ERROR = _auto()
-    QUERY_ERROR_PARTIAL = _auto()
-    FETCH_ERROR_PARTIAL = _auto()
+    GENERIC_ERROR = auto()
+    QUERY_ERROR = auto()
+    FETCH_ERROR = auto()
+    INDEX_ERROR = auto()
+    QUERY_ERROR_PARTIAL = auto()
+    FETCH_ERROR_PARTIAL = auto()
 
 
-@_fin
-@_dc(
+@final
+@dataclass(
     init=True,
     repr=True,
     eq=True,
@@ -136,20 +82,20 @@ class Args:
         ignore_individual_errors: if True, continue on individual file errors
     """
 
-    inputs: _Seq[str]
-    dest: _Path
-    index: _Path | None
+    inputs: Sequence[str]
+    dest: Path
+    index: Path | None
     ignore_individual_errors: bool
 
     def __post_init__(self):
         object.__setattr__(self, "inputs", tuple(self.inputs))
 
 
-@_fin
-class _JSONDict(_SimpNS, _Generic[_T]):
-    __slots__: _ClsVar = ()
+@final
+class _JSONDict(SimpleNamespace, Generic[_T]):
+    __slots__: ClassVar = ()
 
-    def __init__(self, dict: _Map[str, _T]):
+    def __init__(self, dict: Mapping[str, _T]):
         super().__init__(**dict)
 
     def __getattr__(self, name: str):
@@ -162,13 +108,13 @@ class _JSONDict(_SimpNS, _Generic[_T]):
         return getattr(self, key)
 
 
-@_fin
-class _Response(_Proto):
-    __slots__: _ClsVar = ()
+@final
+class _Response(Protocol):
+    __slots__: ClassVar = ()
 
-    @_fin
-    class Value(_Proto):
-        __slots__: _ClsVar = ()
+    @final
+    class Value(Protocol):
+        __slots__: ClassVar = ()
 
         @property
         def value(self) -> str: ...
@@ -176,9 +122,9 @@ class _Response(_Proto):
         @property
         def source(self) -> str: ...
 
-    @_fin
-    class ExtMetadata(_Proto):
-        __slots__: _ClsVar = ()
+    @final
+    class ExtMetadata(Protocol):
+        __slots__: ClassVar = ()
 
         @property
         def Artist(self) -> "_Response.Value | None": ...
@@ -189,9 +135,9 @@ class _Response(_Proto):
         @property
         def LicenseUrl(self) -> "_Response.Value | None": ...
 
-    @_fin
-    class ImageInfoEntry(_Proto):
-        __slots__: _ClsVar = ()
+    @final
+    class ImageInfoEntry(Protocol):
+        __slots__: ClassVar = ()
 
         @property
         def descriptionurl(self) -> str: ...
@@ -202,37 +148,35 @@ class _Response(_Proto):
         @property
         def url(self) -> str: ...
 
-    @_fin
-    class Page(_Proto):
-        __slots__: _ClsVar = ()
+    @final
+    class Page(Protocol):
+        __slots__: ClassVar = ()
 
         @property
         def title(self) -> str: ...
 
         @property
-        def imageinfo(self) -> "_Seq[_Response.ImageInfoEntry] | None": ...
+        def imageinfo(self) -> "Sequence[_Response.ImageInfoEntry] | None": ...
 
-    @_fin
-    class Query(_Proto):
-        __slots__: _ClsVar = ()
+    @final
+    class Query(Protocol):
+        __slots__: ClassVar = ()
 
         @property
-        def pages(self) -> "_Map[str, _Response.Page]": ...
+        def pages(self) -> "Mapping[str, _Response.Page]": ...
 
     query: Query
 
 
-_INDEX_FORMAT_PATTERN = _re_comp(
-    r"^- \[(.+?(?<!\\))]\((.+?(?<!\\))\): (.+)$", _MULTILINE
-)
+_INDEX_FORMAT_PATTERN = compile(r"^- \[(.+?(?<!\\))]\((.+?(?<!\\))\): (.+)$", MULTILINE)
 
 
 def _handle_partial_errors(
-    results: _Coll[_T | BaseException],
+    results: Collection[_T | BaseException],
     *,
     ignore_individual_errors: bool,
     error_message: str = "Error",
-) -> tuple[bool, _Coll[_T]]:
+) -> tuple[bool, Collection[_T]]:
     """Inspect a collection of results and propagate or aggregate errors.
 
     The `results` iterable may contain successful values or exception
@@ -257,7 +201,7 @@ def _handle_partial_errors(
         try:
             raise exception_group
         except ExceptionGroup:
-            _LOGGER.exception(error_message)
+            LOGGER.exception(error_message)
             error = True
     return error, tuple(
         result for result in results if not isinstance(result, BaseException)
@@ -273,7 +217,7 @@ def _index_formatter(filename: str, credit: str):
     """
 
     escaped = filename.replace("\\", "\\\\").replace("]", "\\]")
-    return f"- [{escaped}]({_pct_esc(filename, safe=_PERCENT_ESCAPE_SAFE)}): {credit}"
+    return f"- [{escaped}]({quote(filename, safe=_PERCENT_ESCAPE_SAFE)}): {credit}"
 
 
 def _credit_formatter(page: _Response.Page):
@@ -286,7 +230,7 @@ def _credit_formatter(page: _Response.Page):
 
     assert page.imageinfo is not None
 
-    htm_esc = _HTM2TXT()
+    htm_esc = HTML2Text()
     htm_esc.emphasis_mark = "_"
     htm_esc.ignore_links = True
     htm_esc.single_line_break = True
@@ -331,19 +275,19 @@ async def main(args: Args):
 
     try:
         inputs = tuple(dict.fromkeys(args.inputs))
-        async with _CliSess(
-            connector=_TCPConn(limit_per_host=_MAX_CONCURRENT_REQUESTS_PER_HOST),
+        async with ClientSession(
+            connector=TCPConnector(limit_per_host=_MAX_CONCURRENT_REQUESTS_PER_HOST),
             headers={
                 "Accept-Encoding": "gzip",
-                "User-Agent": _U_AG,
+                "User-Agent": USER_AGENT,
             },
         ) as sess:
             try:
-                _LOGGER.info(f"Querying {len(inputs)} files")
+                LOGGER.info(f"Querying {len(inputs)} files")
 
-                async def query(inputs: _Iter[str]):
+                async def query(inputs: Iterable[str]):
                     async with sess.get(
-                        _URL.build(
+                        URL.build(
                             scheme="https",
                             host="commons.wikimedia.org",
                             path="/w/api.php",
@@ -357,11 +301,11 @@ async def main(args: Args):
                         )
                     ) as resp:
                         data: _Response = await resp.json(
-                            loads=_part(_loads, object_hook=_JSONDict)
+                            loads=partial(loads, object_hook=_JSONDict)
                         )
                     return data.query.pages.items()
 
-                queries = await _gather(
+                queries = await gather(
                     *map(
                         lambda idx: query(inputs[idx : idx + _QUERY_LIMIT]),
                         range(0, len(inputs), _QUERY_LIMIT),
@@ -376,14 +320,14 @@ async def main(args: Args):
                 if error:
                     ec |= ExitCode.QUERY_ERROR_PARTIAL
                 pages = tuple(
-                    {id: page for id, page in _chain.from_iterable(queries)}.values()
+                    {id: page for id, page in chain.from_iterable(queries)}.values()
                 )
             except Exception:
-                _LOGGER.exception("Error querying")
+                LOGGER.exception("Error querying")
                 ec |= ExitCode.QUERY_ERROR
                 raise
             try:
-                _LOGGER.info(f"Fetching {len(pages)} files")
+                LOGGER.info(f"Fetching {len(pages)} files")
 
                 async def fetch(page: _Response.Page):
                     filename = page.title.split(":", 1)[-1]
@@ -393,12 +337,12 @@ async def main(args: Args):
                         sess.get(page.imageinfo[0].url) as resp,
                         await (args.dest / filename).open(mode="wb") as file,
                     ):
-                        _LOGGER.info(f"Fetching '{filename}'")
+                        LOGGER.info(f"Fetching '{filename}'")
                         async for chunk in resp.content.iter_any():
                             await file.write(chunk)
                     return filename, _index_formatter(filename, _credit_formatter(page))
 
-                entries = await _gather(*map(fetch, pages), return_exceptions=True)
+                entries = await gather(*map(fetch, pages), return_exceptions=True)
                 error, entries = _handle_partial_errors(
                     entries,
                     ignore_individual_errors=args.ignore_individual_errors,
@@ -407,32 +351,32 @@ async def main(args: Args):
                 if error:
                     ec |= ExitCode.FETCH_ERROR_PARTIAL
             except Exception:
-                _LOGGER.info("Error fetching")
+                LOGGER.info("Error fetching")
                 ec |= ExitCode.FETCH_ERROR
                 raise
             try:
                 if args.index is None:
-                    _LOGGER.info("Skipped indexing")
+                    LOGGER.info("Skipped indexing")
                 else:
-                    _LOGGER.info(f"Indexing {len(entries)} files")
+                    LOGGER.info(f"Indexing {len(entries)} files")
 
                     await args.index.parent.mkdir(parents=True, exist_ok=True)
                     try:
-                        file = await args.index.open(mode="xt", **_OPEN_TXT_OPTS)
+                        file = await args.index.open(mode="xt", **OPEN_TEXT_OPTIONS)
                     except FileExistsError:
                         pass
                     else:
                         await file.aclose()
 
                     async with await args.index.open(
-                        mode="r+t", **_OPEN_TXT_OPTS
+                        mode="r+t", **OPEN_TEXT_OPTIONS
                     ) as file:
                         read = await file.read()
                         seek = create_task(file.seek(0))
                         try:
                             paragraphs = read.strip().split("\n\n")
                             index = {
-                                _pct_unesc(match[2]): match[0]
+                                unquote(match[2]): match[0]
                                 for match in _INDEX_FORMAT_PATTERN.finditer(
                                     paragraphs[-1]
                                 )
@@ -452,17 +396,17 @@ async def main(args: Args):
                         finally:
                             seek.cancel()
             except Exception:
-                _LOGGER.exception("Error indexing")
+                LOGGER.exception("Error indexing")
                 ec |= ExitCode.INDEX_ERROR
                 raise
     except Exception:
-        _LOGGER.exception("Error")
+        LOGGER.exception("Error")
         ec |= ExitCode.GENERIC_ERROR
 
-    _exit(ec)
+    exit(ec)
 
 
-def parser(parent: _Call[..., _ArgParser] | None = None):
+def parser(parent: Callable[..., ArgumentParser] | None = None):
     """Return an argparse parser configured for the Wikimedia Commons subcommand.
 
     When embedded, `parent` can be a callable that produces an `ArgumentParser`.
@@ -470,7 +414,7 @@ def parser(parent: _Call[..., _ArgParser] | None = None):
 
     prog = __package__ or __name__
 
-    parser = (_ArgParser if parent is None else parent)(
+    parser = (ArgumentParser if parent is None else parent)(
         prog=f"python -m {prog}",
         description="archive data from Wikimedia Commons",
         add_help=True,
@@ -481,14 +425,14 @@ def parser(parent: _Call[..., _ArgParser] | None = None):
         "-v",
         "--version",
         action="version",
-        version=f"{prog} v{_VER}",
+        version=f"{prog} v{VERSION}",
         help="print version and exit",
     )
     parser.add_argument(
         "-d",
         "--dest",
         action="store",
-        type=_Path,
+        type=Path,
         required=True,
         help="destination directory",
     )
@@ -496,7 +440,7 @@ def parser(parent: _Call[..., _ArgParser] | None = None):
         "-i",
         "--index",
         action="store",
-        type=_Path,
+        type=Path,
         help="Markdown-based index file",
     )
     parser.add_argument(
@@ -509,13 +453,13 @@ def parser(parent: _Call[..., _ArgParser] | None = None):
     parser.add_argument(
         "inputs",
         action="store",
-        nargs=_ONE_OR_MORE,
+        nargs=ONE_OR_MORE,
         type=str,
         help="sequence of input(s) to read",
     )
 
-    @_wraps(main)
-    async def invoke(args: _NS):
+    @wraps(main)
+    async def invoke(args: Namespace):
         await main(
             Args(
                 inputs=args.inputs,
