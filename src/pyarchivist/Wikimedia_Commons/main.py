@@ -25,7 +25,7 @@ from anyio import Path
 from html2text import HTML2Text
 from yarl import URL
 
-from .. import LOGGER, OPEN_TEXT_OPTIONS, USER_AGENT, VERSION
+from pyarchivist.meta import LOGGER, OPEN_TEXT_OPTIONS, USER_AGENT, VERSION
 
 __all__ = (
     "ExitCode",

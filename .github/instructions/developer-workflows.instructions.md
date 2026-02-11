@@ -46,7 +46,7 @@ Script & CI conventions:
     python -m pyarchivist Wikimedia_Commons -d .\tmp_dest -i .\tmp_dest\index.md "File:Example.jpg"
     ```
 
-- Version bumps: ensure both `src/pyarchivist/__init__.py` and `pyproject.toml` match. The project has a unit test `tests/pyarchivist/test___init__.py` that asserts the two versions are equal; run `uv run pytest tests/pyarchivist/test___init__.py::test_pyproject_and_init_version_match` as a quick check.
+- Version bumps: ensure both `src/pyarchivist/meta.py` and `pyproject.toml` match. The project has a unit test `tests/pyarchivist/test___init__.py` that asserts the two versions are equal; run `uv run pytest tests/pyarchivist/test___init__.py::test_pyproject_and_init_version_match` as a quick check.
 
 Commit conventions:
 

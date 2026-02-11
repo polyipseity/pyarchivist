@@ -1,5 +1,5 @@
 """Tests that the package version defined in pyproject.toml matches the `VERSION`
-constant defined in `src/pyarchivist/__init__.py`.
+constant defined in `src/pyarchivist/meta.py`.
 
 This test reads `pyproject.toml` using `tomllib` and imports the package
 module to assert the two version values are equal.
@@ -13,7 +13,7 @@ __all__ = ()
 
 
 def test_pyproject_and_init_version_match():
-    """Ensure [project].version in pyproject.toml equals src/pyarchivist.VERSION.
+    """Ensure [project].version in pyproject.toml equals `src/pyarchivist/meta.py::VERSION`.
 
     This test loads the project metadata from the TOML file and imports the
     package module to compare versions.
@@ -25,18 +25,18 @@ def test_pyproject_and_init_version_match():
     )
     py_version = pyproject["project"]["version"]
 
-    init_path = Path("src/pyarchivist/__init__.py")
-    spec = importlib.util.spec_from_file_location("pyarchivist", str(init_path))
+    meta_path = Path("src/pyarchivist/meta.py")
+    spec = importlib.util.spec_from_file_location("pyarchivist.meta", str(meta_path))
     assert spec is not None and spec.loader is not None, (
-        f"Could not load module from {init_path}"
+        f"Could not load module from {meta_path}"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert hasattr(module, "VERSION"), (
-        "Could not find VERSION in src/pyarchivist/__init__.py"
+        "Could not find VERSION in src/pyarchivist/meta.py"
     )
-    init_version = module.VERSION
+    meta_version = module.VERSION
 
-    assert py_version == init_version, (
-        f"Version mismatch: pyproject.toml has {py_version!r} but src/pyarchivist/__init__.py has {init_version!r}"
+    assert py_version == meta_version, (
+        f"Version mismatch: pyproject.toml has {py_version!r} but src/pyarchivist/meta.py has {meta_version!r}"
     )

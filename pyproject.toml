@@ -2,7 +2,7 @@
 requires = ["uv_build"]
 build-backend = "uv_build"
 
-# update `__init__.py`
+# update `src/pyarchivist/meta.py`
 [project]
 authors = [
     {name = "William So", email = "polyipseity@gmail.com"},

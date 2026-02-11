@@ -53,19 +53,19 @@ Docstrings: Ensure that modules and exported public symbols are documented. The 
 
 ## Tests & important test notes
 
-- There is a dedicated test ensuring `pyproject.toml` and `src/pyarchivist/__init__.py::VERSION` match: `tests/pyarchivist/test___init__.py`. If you bump version, update both places.
+- There is a dedicated test ensuring `pyproject.toml` and `src/pyarchivist/meta.py::VERSION` match: `tests/pyarchivist/test___init__.py`. If you bump version, update both places.
 - Tests use `pytest` and `pytest-asyncio` for async tests. Use `@pytest.mark.asyncio` for coroutine tests.
 - Tests must define `__all__ = ()` at top-level in test modules (project rule).
 
 ## Build & validate
 
 - Build reproducibly: `uv build --locked` (requires `uv_build` present and pinned in `[build-system].requires`).
-- Validate by installing the wheel in a fresh venv and importing the library to check `pyarchivist.VERSION`.
+- Validate by installing the wheel in a fresh venv and importing the library to check `pyarchivist.meta.VERSION` (for example: ``python -c "import pyarchivist.meta as m; print(m.VERSION)"``).
 - See `.github/skills/validate-builds/SKILL.md` for a full programmable checklist for build validation.
 
 ## Release steps (agent-friendly summary)
 
-1. Bump `src/pyarchivist/__init__.py::VERSION` only.
+1. Bump `src/pyarchivist/meta.py::VERSION` only.
 2. Run `uv sync --all-extras --dev` and commit `uv.lock` changes.
 3. Commit with message equal to the raw version (e.g., `1.2.3`) and sign it with GPG (`git commit -S -m "1.2.3"`).
 4. Create a signed annotated tag: `git tag -s -a v1.2.3 -m "v1.2.3"` and push commit + tag.

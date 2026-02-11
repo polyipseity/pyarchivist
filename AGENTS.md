@@ -10,7 +10,7 @@ pyarchivist archives online content into the `archives/` tree and maintains inde
 
 ## Repository layout (top-level view)
 
-- `__init__.py` — package version and package metadata (update this when releasing).
+- `src/pyarchivist/meta.py` — package version and package metadata (update this when releasing).
 - `pyproject.toml` (canonical) — use `[dependency-groups].dev` for development extras; `requirements.txt` is deprecated in favor of `pyproject.toml`.
 - `tools/` or `scripts/` — helper scripts (if present).
 - `archives/` — archive storage and `index.md` management (if included in the submodule).
@@ -89,11 +89,11 @@ Adjust the list above to match this submodule; paths below assume this folder is
 
 - Error handling: failures surface via `ExitCode` flags (e.g., `ExitCode.QUERY_ERROR`) and partial errors are handled by `_handle_partial_errors` (which may raise `ExceptionGroup` / `BaseExceptionGroup`). When writing agent tests, assert expected exit codes and logged exceptions where applicable.
 
-- Version & release single source-of-truth: bump `src/pyarchivist/__init__.py::VERSION` and keep `pyproject.toml` in sync (there is a test `tests/pyarchivist/test___init__.py` that asserts this). Release commits must be GPG-signed and tag with `vX.Y.Z` as described below.
+- Version & release single source-of-truth: bump `src/pyarchivist/meta.py::VERSION` and keep `pyproject.toml` in sync (there is a test `tests/pyarchivist/test___init__.py` that asserts this). Release commits must be GPG-signed and tag with `vX.Y.Z` as described below.
 
 - Tests & formatting: use `uv` wrappers for reproducible runs: `uv sync --all-extras --dev`, `uv run pytest`, `uv run ruff check --fix .`, and `prek run --all-files` for pre-commit hooks.
 
-- Files to read first (in order): `pyproject.toml`, `src/pyarchivist/__init__.py`, `src/pyarchivist/Wikimedia_Commons/main.py`, `.github/instructions/*`, `tests/`.
+- Files to read first (in order): `pyproject.toml`, `src/pyarchivist/meta.py`, `src/pyarchivist/Wikimedia_Commons/main.py`, `.github/instructions/*`, `tests/`.
 
 ## Agent Code Conventions
 
@@ -127,12 +127,12 @@ prek run --all-files
 
 When publishing a new release, follow these steps and keep the release commit minimal:
 
-1. Update the version string in `__init__.py` to the new semantic version (e.g. `1.2.3`). After changing the version (and before tagging), run `uv sync --all-extras --dev` to update `uv.lock` and commit the lockfile (either as part of the release commit or as an immediate follow-up commit). Edit only the version and lockfile in the release commit(s).
+1. Update the version string in `src/pyarchivist/meta.py::VERSION` to the new semantic version (e.g. `1.2.3`). After changing the version (and before tagging), run `uv sync --all-extras --dev` to update `uv.lock` and commit the lockfile (either as part of the release commit or as an immediate follow-up commit). Edit only the version and lockfile in the release commit(s).
 
 2. Commit the change with the commit message equal to the bare version string (no prefix). The commit must be GPG-signed.
 
     ```powershell
-    git add pyproject.toml uv.lock src/pyarchivist/__init__.py
+    git add pyproject.toml uv.lock src/pyarchivist/meta.py
     git commit -S -m "1.2.3"
     ```
 
@@ -263,9 +263,7 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
 
 - When to export:
   - Export only the symbols that are intended to be part of the module's public API. Internal helpers should remain underscore-prefixed and omitted from `__all__`.
-  - For packages (`__init__.py`), prefer explicit re-exports and an `__all__` that documents the package surface. If the package intentionally has no public surface, use `__all__ = ()`.
-
-- Tests and automation:
+  - For packages (`__init__.py`), avoid re-exporting module internals. Prefer placing package metadata and configuration in dedicated modules (for example `pyarchivist.meta`) and import them directly using `from pyarchivist.meta import VERSION`. If the package intentionally has no public surface, use `__all__ = ()`.
   - Add a module-level test that enforces `__all__` presence and that it is a tuple. The repository contains a test that parses source files' AST and asserts `__all__` is declared.
   - When you add public symbols, update `__all__`, add tests for the new API, and update the package docs and `README.md` as appropriate.
 
@@ -315,7 +313,7 @@ def _internal() -> None:
 - Tooling enforces a **hard maximum of 100 characters** for both the commit subject/header and body lines, but the repository prefers a **soft limit of 72 characters** for readability. The `commitlint` configuration will **warn** when lines exceed 72 characters (soft limit) and will **fail** when lines exceed 100 characters (hard limit); aim to keep subject ≤72 and wrap body lines at 72 where possible.
 - When changing production code add or update tests. Include short rationale in the commit body for non-trivial design decisions.
 - Release workflow (semantic versioning):
-  - Update version in `__init__.py` only and commit with message equal to the version (GPG-signed).
+  - Update version in `src/pyarchivist/meta.py` only and commit with message equal to the version (GPG-signed).
   - Create a signed annotated tag `vX.Y.Z` (GPG) and push commit and tag.
 
 ## Quick start (development) ⚡

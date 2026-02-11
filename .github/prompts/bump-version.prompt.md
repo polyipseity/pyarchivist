@@ -14,14 +14,18 @@ agent: agent
 ## Workflow
 
 1. **Read current versions**
-   - Print the current canonical version from `pyproject.toml` and search the repository for a source file that defines a `VERSION` variable (e.g., `src/<pkg>/__init__.py` or `<pkg>/__init__.py`). Example (one-liners):
+   - Print the current canonical version from `pyproject.toml` and search the repository for a source file that defines a `VERSION` variable (e.g., `src/<pkg>/meta.py`, `src/<pkg>/__init__.py` or `<pkg>/__init__.py`). Example (one-liners):
 
      ```shell
      python - <<'PY'
      import tomllib,sys,glob,re
      data = tomllib.loads(open('pyproject.toml','rb').read())
      print('pyproject:', data['project']['version'])
-     candidates = glob.glob('src/*/__init__.py') + glob.glob('*/*/__init__.py') + glob.glob('*/__init__.py')
+     candidates = (
+         glob.glob('src/*/meta.py') + glob.glob('src/*/__init__.py') +
+         glob.glob('*/*/meta.py') + glob.glob('*/*/__init__.py') +
+         glob.glob('*/meta.py') + glob.glob('*/__init__.py')
+     )
      for p in candidates:
          s = open(p,'r',encoding='utf-8').read()
          m = re.search(r'^VERSION\s*=\s*["\'](.*)["\']', s, re.M)
@@ -56,7 +60,7 @@ agent: agent
    - Run tests and linting: `uv run pytest` and `uv run ruff check --fix .` (best-effort; do not block the release on transient failures — report failures in output).
 
 6. **Create release commit**
-   - Stage changed files: `pyproject.toml`, the discovered source file (e.g., `src/<pkg>/__init__.py`), and `uv.lock` (if modified).
+   - Stage changed files: `pyproject.toml`, the discovered source file (e.g., `src/<pkg>/meta.py` or `src/<pkg>/__init__.py`), and `uv.lock` (if modified).
    - Commit using the new version string as the commit message and sign the commit with GPG.
 
      - **PowerShell (Windows)**:

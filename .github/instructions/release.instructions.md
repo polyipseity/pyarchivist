@@ -12,18 +12,18 @@ This document describes a minimal, reproducible release process for `pyarchivist
 ## Versioning
 
 - Use semantic versioning (MAJOR.MINOR.PATCH).
-- Update the canonical version in `src/pyarchivist/__init__.py` (or `__init__.py` at package root) only.
+- Update the canonical version in `src/pyarchivist/meta.py::VERSION` only.
 
 ## Release checklist
 
-1. Update the package `__init__` with the new version string (for example, `1.2.3`). After updating the version and before tagging, run `uv sync --all-extras --dev` to refresh `uv.lock` and commit the lockfile (either as part of the release commit or as a separate follow-up commit).
+1. Update `src/pyarchivist/meta.py::VERSION` with the new version string (for example, `1.2.3`). After updating the version and before tagging, run `uv sync --all-extras --dev` to refresh `uv.lock` and commit the lockfile (either as part of the release commit or as a separate follow-up commit).
 
-   - Important: ensure `pyproject.toml` [project].version matches `src/pyarchivist/__init__.py::VERSION`. The repository contains a unit test (`tests/pyarchivist/test___init__.py`) that enforces this; run `uv run pytest` to verify the version sync before tagging.
+   - Important: ensure `pyproject.toml` [project].version matches `src/pyarchivist/meta.py::VERSION`. The repository contains a unit test (`tests/pyarchivist/test___init__.py`) that enforces this; run `uv run pytest` to verify the version sync before tagging.
 
 2. Commit using the version string as the commit message and sign the commit with GPG:
 
 ```powershell
-git add pyproject.toml uv.lock src/pyarchivist/__init__.py
+git add pyproject.toml uv.lock src/pyarchivist/meta.py
 git commit -S -m "1.2.3"
 ```
 

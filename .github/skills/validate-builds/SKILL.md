@@ -48,7 +48,7 @@ Provide a concise, auditable checklist and commands for agents to validate packa
 
    - Create a fresh venv and install the wheel without dependencies: `python -m venv .venv.test && .\.venv.test\Scripts\Activate.ps1` (Windows) or `python -m venv .venv.test && source .venv.test/bin/activate` (POSIX).
    - Install: `python -m pip install --no-deps dist/*.whl`.
-   - Verify import and version: `python -c "import pyarchivist; print(pyarchivist.VERSION)"` (should match `pyproject.toml` version).
+   - Verify import and version: `python -c "import pyarchivist.meta as m; print(m.VERSION)"` (should match `pyproject.toml` version).
 
 6. Validate metadata and license
 
@@ -68,7 +68,7 @@ Provide a concise, auditable checklist and commands for agents to validate packa
 
 - Run `uv build --locked`.
 - Assert that `dist/*.whl` and `dist/*.tar.gz` exist and their names encode the package name and version.
-- Run `python -m pip install --no-deps dist/*.whl` in a fresh venv and assert `python -c "import pyarchivist; print(pyarchivist.VERSION)"` exits 0 and prints the expected version.
+- Run `python -m pip install --no-deps dist/*.whl` in a fresh venv and assert `python -c "import pyarchivist.meta as m; print(m.VERSION)"` exits 0 and prints the expected version.
 - Check `unzip -l dist/*.whl` output contains the module root and `.dist-info/METADATA` with expected license and version strings.
 
 ## What to report when validation fails
@@ -94,7 +94,7 @@ uv build --locked
 python -m venv .venv.test
 .\.venv.test\Scripts\Activate.ps1
 python -m pip install --no-deps dist/*.whl
-python -c "import pyarchivist; print(pyarchivist.VERSION)"
+python -c "import pyarchivist.meta as m; print(m.VERSION)"
 ```
 
 - Minimal CI job step (psuedocode):
@@ -102,7 +102,7 @@ python -c "import pyarchivist; print(pyarchivist.VERSION)"
 ```yaml
 - run: uv build --locked
 - run: python -m pip install --no-deps dist/*.whl
-- run: python -c "import pyarchivist; assert pyarchivist.VERSION == '$(cat pyproject.toml | grep version | ... )'"
+- run: python -c "import pyarchivist.meta as m; assert m.VERSION == '$(cat pyproject.toml | grep version | ... )'"
 ```
 
 ## Optional: validation script

@@ -20,7 +20,7 @@ Signed release commits & tags:
   Example steps:
 
     ```powershell
-    git add src/pyarchivist/__init__.py
+    git add src/pyarchivist/meta.py
     git commit -S -m "1.2.3"
     git tag -s -a v1.2.3 -m "v1.2.3"
     git push origin HEAD && git push origin --tags

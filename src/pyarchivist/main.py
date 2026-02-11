@@ -8,7 +8,8 @@ from argparse import ArgumentParser
 from functools import partial
 from typing import Callable
 
-from . import VERSION
+from pyarchivist.meta import VERSION
+
 from .Wikimedia_Commons import __name__ as Wikimedia_Commons_name
 from .Wikimedia_Commons import __package__ as Wikimedia_Commons_package
 from .Wikimedia_Commons.main import parser as Wikimedia_Commons_parser
