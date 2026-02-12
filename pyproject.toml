@@ -69,12 +69,12 @@ venv = ".venv"
 venvPath = "."
 
 [[tool.pyright.executionEnvironments]]
-extraPaths = ["."]
-reportPrivateUsage = "none"
-root = "tests"
+root = "src"
 
 [[tool.pyright.executionEnvironments]]
-root = "."
+extraPaths = ["src"]
+reportPrivateUsage = "none"
+root = "tests"
 
 [tool.pytest.ini_options]
 addopts = ["--cov=./", "--cov-report=term-missing", "--dist=loadscope", "-n=auto", "--strict-markers"]
