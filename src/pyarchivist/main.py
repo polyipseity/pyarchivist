@@ -5,8 +5,8 @@ in subcommands from subpackages.
 """
 
 from argparse import ArgumentParser
+from collections.abc import Callable
 from functools import partial
-from typing import Callable
 
 from pyarchivist.meta import VERSION
 

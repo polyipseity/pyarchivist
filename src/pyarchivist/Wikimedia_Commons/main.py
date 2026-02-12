@@ -8,7 +8,7 @@ the flow are declared here as well.
 
 from argparse import ONE_OR_MORE, ArgumentParser, Namespace
 from asyncio import create_task, gather
-from collections.abc import Callable, Collection, Iterable
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import IntFlag, auto, unique
 from functools import partial, wraps
@@ -17,7 +17,7 @@ from json import loads
 from re import MULTILINE, compile
 from sys import exit
 from types import SimpleNamespace
-from typing import ClassVar, Generic, Mapping, Protocol, Sequence, TypeVar, final
+from typing import ClassVar, Generic, Protocol, TypeVar, final
 from urllib.parse import quote, unquote
 
 from aiohttp import ClientSession, TCPConnector
