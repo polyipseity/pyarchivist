@@ -93,6 +93,15 @@ class Args:
 
 @final
 class _JSONDict(SimpleNamespace, Generic[_T]):
+    """A thin wrapper that provides attribute-style access to JSON objects.
+
+    Instances are constructed from a mapping (typically from ``json.loads``
+    via an ``object_hook``) and expose mapping keys as attributes. When an
+    attribute is missing, ``None`` is returned rather than raising an
+    ``AttributeError``, which mirrors the defensive access patterns used for
+    MediaWiki API responses in this module.
+    """
+
     __slots__: ClassVar = ()
 
     def __init__(self, dict: Mapping[str, _T]):
@@ -110,10 +119,24 @@ class _JSONDict(SimpleNamespace, Generic[_T]):
 
 @final
 class _Response(Protocol):
+    """Protocol describing the shape of data returned by the MediaWiki API.
+
+    The MediaWiki ``query`` response is a nested JSON structure. This protocol
+    defines narrow, typed views over that structure used by the code in this
+    module. The nested protocols represent the commonly accessed parts of the
+    JSON (value containers, extended metadata, image info entries, pages and
+    the query mapping).
+
+    The :class:`Query` nested protocol is exposed via the :pyattr:`query`
+    attribute on the top-level protocol.
+    """
+
     __slots__: ClassVar = ()
 
     @final
     class Value(Protocol):
+        """A small container providing a textual ``value`` and its ``source``."""
+
         __slots__: ClassVar = ()
 
         @property
@@ -124,6 +147,8 @@ class _Response(Protocol):
 
     @final
     class ExtMetadata(Protocol):
+        """Extended metadata block containing author and license information."""
+
         __slots__: ClassVar = ()
 
         @property
@@ -137,6 +162,8 @@ class _Response(Protocol):
 
     @final
     class ImageInfoEntry(Protocol):
+        """Entry describing a single image variant including URL and metadata."""
+
         __slots__: ClassVar = ()
 
         @property
@@ -150,6 +177,8 @@ class _Response(Protocol):
 
     @final
     class Page(Protocol):
+        """A page container with a title and optional image information."""
+
         __slots__: ClassVar = ()
 
         @property
@@ -160,6 +189,8 @@ class _Response(Protocol):
 
     @final
     class Query(Protocol):
+        """Top-level query mapping containing page id -> :class:`Page`."""
+
         __slots__: ClassVar = ()
 
         @property

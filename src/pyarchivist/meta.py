@@ -21,6 +21,14 @@ __all__ = (
 
 @final
 class _OpenOptions(TypedDict):
+    """Options accepted by :func:`open` when opening text files.
+
+    This TypedDict documents the small subset of ``open()`` options the
+    package uses when creating or reading text files. The keys mirror the
+    corresponding arguments to the built-in ``open`` and are used to create
+    the canonical ``OPEN_TEXT_OPTIONS`` mapping.
+    """
+
     encoding: str
     errors: Literal[
         "strict",
