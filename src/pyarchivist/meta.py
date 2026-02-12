@@ -9,7 +9,7 @@ from logging import getLogger
 from sys import version
 from typing import Literal, TypedDict, final
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 __all__ = (
     "AUTHORS",
@@ -80,7 +80,7 @@ class PackageConfig(BaseModel):
     open_text_options: _OpenOptions
     user_agent: str
 
-    model_config = {"frozen": True}
+    model_config = ConfigDict(frozen=True)
 
 
 # exported validated instance for convenience

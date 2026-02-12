@@ -62,5 +62,6 @@ Agent & automation rules:
 - Agents must run the same format & check steps locally (using `uv` wrappers)
   before making commits or opening PRs. This includes running pre-commit-style hooks (via `prek`) and the test suite.
 - Agents must not alias imports to short, underscore-prefixed names (for example `from module import name as _name`). Use direct imports (`from module import name`) or qualified module imports and avoid introducing underscore-prefixed import aliases.
+- Prefer pydantic v2 model configuration using `ConfigDict`. When adding or updating `BaseModel` classes use `model_config = ConfigDict(...)` (import `ConfigDict` from `pydantic`) instead of legacy inner `Config` classes or raw dicts; update tests if model behaviour (for example immutability) is affected.
 - Agents must ask clarifying questions if intent is ambiguous rather than
   guessing when correctness matters.

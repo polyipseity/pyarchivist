@@ -22,6 +22,7 @@ Python style & typing:
 - Prefer PEP 585/PEP 604 styles in annotations (e.g., `list[int]`, `str | None`).
 - Avoid `from __future__ import annotations`; prefer native annotations and use `typing.TYPE_CHECKING` when you need to import types for type-checking only.
 - Add module-level docstrings and type annotations for public APIs. Public modules, classes and functions should include clear, concise docstrings describing purpose, parameters and return values where applicable. Prefer Google-style docstrings (short summary line, blank line, optional extended description and sections for Args, Returns, Raises) for consistency across the repository.
+- Pydantic models: prefer pydantic v2 `model_config = ConfigDict(...)` for model configuration. Import `ConfigDict` from `pydantic` and avoid legacy inner `Config` classes or raw dict literals. Tests should validate model behaviour (for example immutability when `frozen=True`).
 - Avoid aliasing imports to short, underscore-prefixed names (for example `from module import name as _name`). This reduces readability and makes diffs noisy; prefer `from module import name` or `import module` with qualified access. Use `as` only to avoid collisions or when a clear, documented reason exists.
 - Add `__all__` tuples to modules that export a public surface. Test modules
   should set `__all__ = ()`.

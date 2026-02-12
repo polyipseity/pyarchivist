@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from pydantic import BaseModel, DirectoryPath, FilePath, NewPath
+from pydantic import BaseModel, ConfigDict, DirectoryPath, FilePath, NewPath
 
 __all__ = (
     "Value",
@@ -32,7 +32,7 @@ class Value(BaseModel):
     value: str | None = None
     source: str | None = None
 
-    model_config = {"frozen": True}
+    model_config = ConfigDict(frozen=True)
 
 
 class ExtMetadata(BaseModel):
@@ -42,7 +42,7 @@ class ExtMetadata(BaseModel):
     LicenseShortName: Value | None = None
     LicenseUrl: Value | None = None
 
-    model_config = {"frozen": True}
+    model_config = ConfigDict(frozen=True)
 
 
 class ImageInfoEntry(BaseModel):
@@ -52,7 +52,7 @@ class ImageInfoEntry(BaseModel):
     extmetadata: ExtMetadata | None = None
     url: str
 
-    model_config = {"frozen": True}
+    model_config = ConfigDict(frozen=True)
 
 
 class Page(BaseModel):
@@ -61,7 +61,7 @@ class Page(BaseModel):
     title: str
     imageinfo: Sequence[ImageInfoEntry] | None = None
 
-    model_config = {"frozen": True}
+    model_config = ConfigDict(frozen=True)
 
 
 class Query(BaseModel):
@@ -69,7 +69,7 @@ class Query(BaseModel):
 
     pages: Mapping[str, Page]
 
-    model_config = {"frozen": True}
+    model_config = ConfigDict(frozen=True)
 
 
 class ResponseModel(BaseModel):
@@ -77,7 +77,7 @@ class ResponseModel(BaseModel):
 
     query: Query
 
-    model_config = {"frozen": True}
+    model_config = ConfigDict(frozen=True)
 
 
 class Args(BaseModel):
@@ -93,4 +93,4 @@ class Args(BaseModel):
     index: FilePath | NewPath | None = None
     ignore_individual_errors: bool = False
 
-    model_config = {"frozen": True}
+    model_config = ConfigDict(frozen=True)

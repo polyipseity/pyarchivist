@@ -51,6 +51,7 @@ uv run pytest --cov=./ --cov-report=term-missing
 - Aim for small, deterministic, and fast tests.
 - Use fixtures for shared setup. Keep fixture scope appropriate (function or module) for isolation and speed.
 - When changing behaviour, add or update tests to cover the change; keep coverage stable or improved.
+- Pydantic models: when testing `BaseModel` behaviour, expect pydantic v2 idioms — models may declare `model_config = ConfigDict(...)`. Tests should assert the model's runtime behaviour (for example immutability when `frozen=True`) rather than implementation details like the exact `model_config` representation.
 
 ## Testing integration flows
 
