@@ -6,18 +6,16 @@ factory for the CLI subcommand. Helper utilities and small types used across
 the flow are declared here as well.
 """
 
-from argparse import ONE_OR_MORE, ArgumentParser, Namespace
+import pathlib
+from argparse import ONE_OR_MORE, ArgumentParser
 from asyncio import create_task, gather
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Collection, Iterable
 from enum import IntFlag, auto, unique
-from functools import partial, wraps
+from functools import wraps
 from itertools import chain
-from json import loads
 from re import MULTILINE, compile
 from sys import exit
-from types import SimpleNamespace
-from typing import ClassVar, Generic, Protocol, TypeVar, final
+from typing import ClassVar, Protocol, TypeVar, final
 from urllib.parse import quote, unquote
 
 from aiohttp import ClientSession, TCPConnector
@@ -26,6 +24,8 @@ from html2text import HTML2Text
 from yarl import URL
 
 from pyarchivist.meta import LOGGER, OPEN_TEXT_OPTIONS, USER_AGENT, VERSION
+
+from .models import Args, Page, ResponseModel
 
 __all__ = (
     "ExitCode",
@@ -60,143 +60,9 @@ class ExitCode(IntFlag):
     FETCH_ERROR_PARTIAL = auto()
 
 
-@final
-@dataclass(
-    init=True,
-    repr=True,
-    eq=True,
-    order=False,
-    unsafe_hash=False,
-    frozen=True,
-    match_args=True,
-    kw_only=True,
-    slots=True,
-)
-class Args:
-    """Immutable container for parsed CLI arguments.
-
-    Attributes:
-        inputs: sequence of input titles (strings)
-        dest: destination path where files will be written
-        index: optional index file path (Markdown)
-        ignore_individual_errors: if True, continue on individual file errors
-    """
-
-    inputs: Sequence[str]
-    dest: Path
-    index: Path | None
-    ignore_individual_errors: bool
-
-    def __post_init__(self):
-        object.__setattr__(self, "inputs", tuple(self.inputs))
-
-
-@final
-class _JSONDict(SimpleNamespace, Generic[_T]):
-    """A thin wrapper that provides attribute-style access to JSON objects.
-
-    Instances are constructed from a mapping (typically from ``json.loads``
-    via an ``object_hook``) and expose mapping keys as attributes. When an
-    attribute is missing, ``None`` is returned rather than raising an
-    ``AttributeError``, which mirrors the defensive access patterns used for
-    MediaWiki API responses in this module.
-    """
-
-    __slots__: ClassVar = ()
-
-    def __init__(self, dict: Mapping[str, _T]):
-        super().__init__(**dict)
-
-    def __getattr__(self, name: str):
-        try:
-            return getattr(self.__dict__, name)
-        except AttributeError:
-            return None
-
-    def __getitem__(self, key: str):
-        return getattr(self, key)
-
-
-@final
-class _Response(Protocol):
-    """Protocol describing the shape of data returned by the MediaWiki API.
-
-    The MediaWiki ``query`` response is a nested JSON structure. This protocol
-    defines narrow, typed views over that structure used by the code in this
-    module. The nested protocols represent the commonly accessed parts of the
-    JSON (value containers, extended metadata, image info entries, pages and
-    the query mapping).
-
-    The :class:`Query` nested protocol is exposed via the :pyattr:`query`
-    attribute on the top-level protocol.
-    """
-
-    __slots__: ClassVar = ()
-
-    @final
-    class Value(Protocol):
-        """A small container providing a textual ``value`` and its ``source``."""
-
-        __slots__: ClassVar = ()
-
-        @property
-        def value(self) -> str: ...
-
-        @property
-        def source(self) -> str: ...
-
-    @final
-    class ExtMetadata(Protocol):
-        """Extended metadata block containing author and license information."""
-
-        __slots__: ClassVar = ()
-
-        @property
-        def Artist(self) -> "_Response.Value | None": ...
-
-        @property
-        def LicenseShortName(self) -> "_Response.Value | None": ...
-
-        @property
-        def LicenseUrl(self) -> "_Response.Value | None": ...
-
-    @final
-    class ImageInfoEntry(Protocol):
-        """Entry describing a single image variant including URL and metadata."""
-
-        __slots__: ClassVar = ()
-
-        @property
-        def descriptionurl(self) -> str: ...
-
-        @property
-        def extmetadata(self) -> "_Response.ExtMetadata": ...
-
-        @property
-        def url(self) -> str: ...
-
-    @final
-    class Page(Protocol):
-        """A page container with a title and optional image information."""
-
-        __slots__: ClassVar = ()
-
-        @property
-        def title(self) -> str: ...
-
-        @property
-        def imageinfo(self) -> "Sequence[_Response.ImageInfoEntry] | None": ...
-
-    @final
-    class Query(Protocol):
-        """Top-level query mapping containing page id -> :class:`Page`."""
-
-        __slots__: ClassVar = ()
-
-        @property
-        def pages(self) -> "Mapping[str, _Response.Page]": ...
-
-    query: Query
+# The CLI argument model and response models are provided by pydantic
+# models in :mod:`.models` (see `Args` and `ResponseModel`). This keeps
+# JSON parsing and validation centralized and more explicit.
 
 
 _INDEX_FORMAT_PATTERN = compile(r"^- \[(.+?(?<!\\))]\((.+?(?<!\\))\): (.+)$", MULTILINE)
@@ -251,7 +117,7 @@ def _index_formatter(filename: str, credit: str):
     return f"- [{escaped}]({quote(filename, safe=_PERCENT_ESCAPE_SAFE)}): {credit}"
 
 
-def _credit_formatter(page: _Response.Page):
+def _credit_formatter(page: Page):
     """Produce a credit string (HTML fragment) for an image page.
 
     The function extracts author and license information from the page
@@ -270,20 +136,35 @@ def _credit_formatter(page: _Response.Page):
 
     ii = page.imageinfo[0]
     emd = ii.extmetadata
-    author = htm_esc.handle(emd.Artist.value).strip() if emd.Artist else ""
+
+    # Defensive access: pydantic fields may be None; ensure we pass `str` to
+    # html2text and call string methods only on `str`.
+    raw_author = ""
+    if emd and emd.Artist and emd.Artist.value:
+        raw_author = emd.Artist.value
+    author = htm_esc.handle(raw_author).strip()
     if "Unknown author".casefold() in author.casefold():
         author = ""
-    lic = emd.LicenseShortName.value if emd.LicenseShortName else ""
+
+    raw_lic = ""
+    if emd and emd.LicenseShortName and emd.LicenseShortName.value:
+        raw_lic = emd.LicenseShortName.value
+    lic = raw_lic
     if "Unknown license".casefold() in lic.casefold():
         lic = ""
-    lic_url = emd.LicenseUrl.value if lic and emd.LicenseUrl else ""
+
+    lic_url = ""
+    if emd and emd.LicenseUrl and emd.LicenseUrl.value:
+        lic_url = emd.LicenseUrl.value
+
     lic_lnk = "".join(
         (
             f'<a href="{lic_url}">' if lic_url else "",
-            lic.replace("\n", "") or "See page for license",
+            (lic.replace("\n", "") if lic else "See page for license"),
             "</a>" if lic_url else "",
         )
     )
+
     author = author.replace("\n", "") or "See page for author"
     return (
         f'<a href="{ii.descriptionurl}">{author}</a>, {lic_lnk}, via Wikimedia Commons'
@@ -331,9 +212,8 @@ async def main(args: Args):
                             },
                         )
                     ) as resp:
-                        data: _Response = await resp.json(
-                            loads=partial(loads, object_hook=_JSONDict)
-                        )
+                        text = await resp.text()
+                    data = ResponseModel.model_validate_json(text)
                     return data.query.pages.items()
 
                 queries = await gather(
@@ -360,13 +240,16 @@ async def main(args: Args):
             try:
                 LOGGER.info(f"Fetching {len(pages)} files")
 
-                async def fetch(page: _Response.Page):
+                async def fetch(page: Page):
                     filename = page.title.split(":", 1)[-1]
                     if page.imageinfo is None:
                         raise ValueError(f"Failed to fetch '{filename}'")
+                    dest_path = Path(args.dest)
+                    # ensure destination directory exists before writing files
+                    await dest_path.mkdir(parents=True, exist_ok=True)
                     async with (
                         sess.get(page.imageinfo[0].url) as resp,
-                        await (args.dest / filename).open(mode="wb") as file,
+                        await (dest_path / filename).open(mode="wb") as file,
                     ):
                         LOGGER.info(f"Fetching '{filename}'")
                         async for chunk in resp.content.iter_any():
@@ -391,17 +274,16 @@ async def main(args: Args):
                 else:
                     LOGGER.info(f"Indexing {len(entries)} files")
 
-                    await args.index.parent.mkdir(parents=True, exist_ok=True)
+                    idx = Path(args.index)
+                    await idx.parent.mkdir(parents=True, exist_ok=True)
                     try:
-                        file = await args.index.open(mode="xt", **OPEN_TEXT_OPTIONS)
+                        file = await idx.open(mode="xt", **OPEN_TEXT_OPTIONS)
                     except FileExistsError:
                         pass
                     else:
                         await file.aclose()
 
-                    async with await args.index.open(
-                        mode="r+t", **OPEN_TEXT_OPTIONS
-                    ) as file:
+                    async with await idx.open(mode="r+t", **OPEN_TEXT_OPTIONS) as file:
                         read = await file.read()
                         seek = create_task(file.seek(0))
                         try:
@@ -435,6 +317,13 @@ async def main(args: Args):
         ec |= ExitCode.GENERIC_ERROR
 
     exit(ec)
+
+
+class _ParserNamespace(Protocol):
+    dest: Path
+    index: Path | None
+    inputs: list[str]
+    ignore_individual_errors: bool
 
 
 def parser(parent: Callable[..., ArgumentParser] | None = None):
@@ -490,12 +379,14 @@ def parser(parent: Callable[..., ArgumentParser] | None = None):
     )
 
     @wraps(main)
-    async def invoke(args: Namespace):
+    async def invoke(args: _ParserNamespace):
         await main(
             Args(
-                inputs=args.inputs,
-                dest=args.dest,
-                index=args.index,
+                inputs=tuple(args.inputs),
+                # `pathlib.Path` must be used here for Pydantic validation
+                dest=pathlib.Path(args.dest),
+                # `pathlib.Path` must be used here for Pydantic validation
+                index=pathlib.Path(args.index) if args.index is not None else None,
                 ignore_individual_errors=args.ignore_individual_errors,
             )
         )

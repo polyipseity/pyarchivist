@@ -9,6 +9,8 @@ from logging import getLogger
 from sys import version
 from typing import Literal, TypedDict, final
 
+from pydantic import BaseModel
+
 __all__ = (
     "AUTHORS",
     "NAME",
@@ -16,6 +18,8 @@ __all__ = (
     "LOGGER",
     "OPEN_TEXT_OPTIONS",
     "USER_AGENT",
+    "PackageConfig",
+    "PACKAGE_CONFIG",
 )
 
 
@@ -59,3 +63,31 @@ OPEN_TEXT_OPTIONS: _OpenOptions = {
     "newline": None,
 }
 USER_AGENT = f"{NAME}/{VERSION} ({AUTHORS[0]['email']}) Python/{version}"
+
+
+class PackageConfig(BaseModel):
+    """Validated package configuration view.
+
+    Provides a pydantic view over a small set of package-level constants so
+    callers that prefer runtime validation or programmatic access can use a
+    single validated object. The module-level constants remain as the
+    canonical exports for backwards compatibility.
+    """
+
+    name: str
+    version: str
+    authors: tuple[dict[str, str], ...]
+    open_text_options: _OpenOptions
+    user_agent: str
+
+    model_config = {"frozen": True}
+
+
+# exported validated instance for convenience
+PACKAGE_CONFIG = PackageConfig(
+    name=NAME,
+    version=VERSION,
+    authors=AUTHORS,
+    open_text_options=OPEN_TEXT_OPTIONS,
+    user_agent=USER_AGENT,
+)
