@@ -7,18 +7,21 @@ module to assert the two version values are equal.
 
 import importlib.util
 import tomllib
-from pathlib import Path
+
+import pytest
+from anyio import Path
 
 __all__ = ()
 
 
-def test_pyproject_and_init_version_match():
+@pytest.mark.asyncio
+async def test_pyproject_and_init_version_match():
     """Ensure [project].version in pyproject.toml equals `src/pyarchivist/meta.py::VERSION`.
 
     This test loads the project metadata from the TOML file and imports the
     package module to compare versions.
     """
-    pyproject_text = Path("pyproject.toml").read_text(encoding="utf-8")
+    pyproject_text = await Path("pyproject.toml").read_text(encoding="utf-8")
     pyproject = tomllib.loads(pyproject_text)
     assert "project" in pyproject and "version" in pyproject["project"], (
         "pyproject.toml is missing [project].version"

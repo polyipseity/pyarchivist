@@ -10,11 +10,12 @@ __all__ = ()
 
 import asyncio
 import json
+import pathlib
 from collections.abc import AsyncIterator
-from pathlib import Path
 from typing import Any
 
 import pytest
+from anyio import Path
 
 from pyarchivist.Wikimedia_Commons import main as commons_main
 from pyarchivist.Wikimedia_Commons.models import Args
@@ -130,16 +131,17 @@ async def test_query_and_fetch_writes_file(
 
     args: Args = Args(
         inputs=("File:Example.jpg",),
-        dest=Path(tmp_path),
+        # `pathlib.Path` must be used here for Pydantic validation
+        dest=pathlib.Path(tmp_path),
         index=None,
         ignore_individual_errors=False,
     )
 
     await commons_main.main(args)
 
-    out: Path = tmp_path / "Example.jpg"
-    assert out.exists()
-    assert out.read_bytes() == file_bytes
+    out: Path = Path(tmp_path) / "Example.jpg"
+    assert await out.exists()
+    assert await out.read_bytes() == file_bytes
 
 
 @pytest.mark.asyncio
@@ -177,21 +179,23 @@ async def test_indexing_updates_index_file(
     monkeypatch.setattr(commons_main, "exit", _fake_exit_2)
 
     # create an index file with an existing entry
-    index_path: Path = tmp_path / "index.md"
-    index_path.write_text(
+    index_path: Path = Path(tmp_path) / "index.md"
+    await index_path.write_text(
         "Header\n\n- [Existing](Existing): Existing credit\n", encoding="utf-8"
     )
 
     args: Args = Args(
         inputs=("File:Zed.jpg",),
-        dest=Path(tmp_path),
-        index=Path(index_path),
+        # `pathlib.Path` must be used here for Pydantic validation
+        dest=pathlib.Path(tmp_path),
+        # `pathlib.Path` must be used here for Pydantic validation
+        index=pathlib.Path(index_path),
         ignore_individual_errors=False,
     )
 
     await commons_main.main(args)
 
-    text: str = index_path.read_text(encoding="utf-8")
+    text: str = await index_path.read_text(encoding="utf-8")
     # last paragraph should contain both entries sorted (Existing, Zed.jpg)
     assert "Existing" in text
     assert "Zed.jpg" in text
