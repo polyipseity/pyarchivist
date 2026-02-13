@@ -88,6 +88,7 @@ class Args:
     ignore_individual_errors: bool
 
     def __post_init__(self):
+        """Normalize `inputs` to an immutable tuple after initialization."""
         object.__setattr__(self, "inputs", tuple(self.inputs))
 
 
@@ -234,6 +235,8 @@ async def main(args: Args):
                 LOGGER.info(f"Querying {len(inputs)} files")
 
                 async def query(inputs: Iterable[str]):
+                    """Query the Wikimedia Commons API for the given titles and
+                    return the parsed pages items."""
                     async with sess.get(
                         URL.build(
                             scheme="https",
@@ -277,6 +280,8 @@ async def main(args: Args):
                 LOGGER.info(f"Fetching {len(pages)} files")
 
                 async def fetch(page: Page):
+                    """Download the binary content for `page`, write to `dest`, and
+                    return (filename, index_line)."""
                     filename = page.title.split(":", 1)[-1]
                     if page.imageinfo is None:
                         raise ValueError(f"Failed to fetch '{filename}'")
@@ -356,6 +361,8 @@ async def main(args: Args):
 
 
 class _ParserNamespace(Protocol):
+    """Typed namespace returned by the Wikimedia subparser."""
+
     dest: Path
     index: Path | None
     inputs: list[str]
@@ -416,6 +423,8 @@ def parser(parent: Callable[..., ArgumentParser] | None = None):
 
     @wraps(main)
     async def invoke(args: _ParserNamespace):
+        """Adapter converting an argparse namespace into `Args` and calling
+        `main`."""
         await main(
             Args(
                 inputs=tuple(args.inputs),

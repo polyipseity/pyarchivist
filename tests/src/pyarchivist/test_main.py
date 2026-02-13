@@ -32,6 +32,7 @@ __all__ = ()
 
 
 def test_top_level_parser_includes_wikimedia_subparser(tmp_path: Path) -> None:
+    """Verify the top-level parser includes the Wikimedia_Commons subparser."""
     p: ArgumentParser = pkg_main.parser()
 
     # ensure subcommand exists and delegates to the Wikimedia_Commons parser
@@ -44,6 +45,7 @@ def test_top_level_parser_includes_wikimedia_subparser(tmp_path: Path) -> None:
 
 
 def test_top_level_parser_version_action_contains_version() -> None:
+    """Ensure the top-level parser exposes a `--version` action containing VERSION."""
 
     p = pkg_main.parser()
     version_actions = [
@@ -64,6 +66,7 @@ def test_top_level_parser_version_action_contains_version() -> None:
     )
 )
 def test_index_formatter_escapes_and_quotes_property(fname: str) -> None:
+    """Property test: ensure `_index_formatter` escapes labels and quotes links."""
     # ensure generated filename contains characters we expect (guard)
     out = commons_main._index_formatter(fname, "credit")
 
@@ -84,6 +87,7 @@ def test_index_formatter_escapes_and_quotes_property(fname: str) -> None:
 
 
 def _wrap_bold(text: str) -> str:
+    """Wrap `text` in a simple <b/> HTML tag (helper for property tests)."""
     return f"<b>{text}</b>"
 
 
@@ -104,6 +108,7 @@ def _wrap_bold(text: str) -> str:
     lic_url=st.one_of(st.none(), st.just(""), st.just("https://example.org/license")),
 )
 def test_credit_formatter_property(author: str, lic: str, lic_url: str | None) -> None:
+    """Property test: `_credit_formatter` sanitizes metadata and provides fallbacks."""
     # build an ImageInfoEntry with the generated metadata and verify that
     # the output contains sanitized/expected content.
     emd = ExtMetadata(
@@ -164,9 +169,11 @@ def test_credit_formatter_property(author: str, lic: str, lic_url: str | None) -
 
 
 def test_parser_accepts_parent_factory_and_forwards_kwargs() -> None:
+    """Verify `parser(parent=...)` forwards kwargs to the parent factory."""
     called: dict[str, object] = {}
 
     def factory(*_a: object, **kwargs: Any) -> ArgumentParser:
+        """Factory that records received kwargs and returns a simple ArgumentParser."""
         # record that the factory received the expected prog kwarg
         called["prog"] = kwargs.get("prog")
         return ArgumentParser(**kwargs)
@@ -178,6 +185,7 @@ def test_parser_accepts_parent_factory_and_forwards_kwargs() -> None:
 
 
 def test_subparser_name_sanitized_and_description_present() -> None:
+    """Ensure the top-level subparser for Wikimedia_Commons is present and described."""
     p = pkg_main.parser()
     # find the subparsers action (ensure `.choices` is populated)
     group_untyped = next(
@@ -194,6 +202,7 @@ def test_subparser_name_sanitized_and_description_present() -> None:
 
 
 def test_parser_requires_subcommand_raises_system_exit() -> None:
+    """Verify calling the top-level parser without a subcommand raises ArgumentError."""
     p = pkg_main.parser()
     # parser was created with exit_on_error=False so argparse raises
     # ArgumentError rather than calling sys.exit()

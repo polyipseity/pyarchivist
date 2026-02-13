@@ -32,56 +32,73 @@ __all__ = ()
 
 
 class _FakeContent:
+    """Lightweight async content-like object exposing `iter_any()`."""
+
     def __init__(self, chunks: list[bytes]) -> None:
+        """Initialize with a list of byte chunks to yield."""
         self._chunks: list[bytes] = chunks
 
     async def iter_any(self) -> AsyncIterator[bytes]:
+        """Async iterator that yields configured byte chunks."""
         for c in self._chunks:
             await asyncio.sleep(0)
             yield c
 
 
 class _FakeResp:
+    """Minimal async context manager mimicking parts of `aiohttp.Response`."""
+
     def __init__(
         self, *, json_data: Any | None = None, content_chunks: list[bytes] | None = None
     ) -> None:
+        """Store provided JSON payload and content chunks for reads."""
         self._json: Any | None = json_data
         self.content: _FakeContent = _FakeContent(content_chunks or [])
 
     async def json(self) -> Any | None:
+        """Return the stored JSON-like payload."""
         # mimic aiohttp.Response.json()
         await asyncio.sleep(0)
         return self._json
 
     async def text(self) -> str:
+        """Return text; if JSON payload is present return its JSON string."""
         # mimic aiohttp.Response.text(); return a JSON string when json data set
         await asyncio.sleep(0)
         return json.dumps(self._json) if self._json is not None else ""
 
     async def __aenter__(self) -> "_FakeResp":
+        """Enter async context (no-op)."""
         return self
 
     async def __aexit__(
         self, exc_type: type | None, exc: BaseException | None, tb: object | None
     ) -> bool:
+        """Exit async context (no-op)."""
         return False
 
 
 class _FakeClientSession:
+    """Fake client session implementing minimal `get` and async context API."""
+
     def __init__(self, *args: object, **kwargs: object) -> None:
+        """Initialize placeholders used by tests (api json and file bytes)."""
         # will be filled by the test via attributes
         self._api_json: dict[str, Any] | None = None
         self._file_bytes: bytes | None = None
 
     async def __aenter__(self) -> "_FakeClientSession":
+        """Enter async context (no-op)."""
         return self
 
     async def __aexit__(
         self, exc_type: type | None, exc: BaseException | None, tb: object | None
     ) -> bool:
+        """Exit async context (no-op)."""
         return False
 
     def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
+        """Return a `_FakeResp` for API or file-download URLs."""
         s = str(url)
         if "api.php" in s:
             return _FakeResp(json_data=self._api_json)
@@ -97,6 +114,7 @@ class _FakeClientSession:
 async def test_query_and_fetch_writes_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Full flow: query returns metadata and a subsequent fetch writes the file."""
     fake_sess = _FakeClientSession()
 
     # sample API response matching the models used by the code
@@ -131,9 +149,11 @@ async def test_query_and_fetch_writes_file(
     fake_sess._file_bytes = file_bytes
 
     def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return the configured fake session for the test."""
         return fake_sess
 
     def _fake_exit(code: int | object) -> None:
+        """No-op replacement for sys.exit used in tests."""
         return None
 
     monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
@@ -178,6 +198,7 @@ async def test_indexing_updates_index_file(
     initial_index: str,
     expected_lines: list[str],
 ) -> None:
+    """When indexing, update or create the index paragraph while preserving header."""
     fake_sess = _FakeClientSession()
 
     fake_sess._api_json = {
@@ -200,9 +221,11 @@ async def test_indexing_updates_index_file(
     fake_sess._file_bytes = b"file-contents"
 
     def _client_session_factory_2(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return prepared fake session for indexing test."""
         return fake_sess
 
     def _fake_exit_2(code: int | object) -> None:
+        """No-op exit replacement for tests."""
         return None
 
     monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory_2)
@@ -268,11 +291,13 @@ async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partia
     fake_sess._file_bytes = b"good-bytes"
 
     def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return the prepared fake session for the fetch-partial test."""
         return fake_sess
 
     captured: dict[str, object] = {}
 
     def _fake_exit(code: int | object) -> None:
+        """Capture exit code for assertions in the test."""
         captured["code"] = code
 
     monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
@@ -312,11 +337,16 @@ async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
     }
 
     def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return the fake session containing the bad API payload."""
         return fake_sess
 
     captured: dict[str, object] = {}
 
     def _fake_exit(code: int | object) -> None:
+        """Capture the exit code produced by the run.
+
+        Tests assert on the captured value.
+        """
         captured["code"] = code
 
     monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
@@ -350,6 +380,7 @@ async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
 def test_index_formatter_handles_various_filenames(
     raw: str, has_bracket: bool, has_backslash: bool, has_safe: bool
 ) -> None:
+    """Verify `_index_formatter` handles brackets, backslashes and safe chars."""
     out = commons_main._index_formatter(raw, "credit")
 
     # label is the human-readable portion between [ and ]
@@ -394,6 +425,7 @@ def test_index_formatter_handles_various_filenames(
     ).map(lambda t: t[0] + t[1])
 )
 def test_index_formatter_property(fname: str) -> None:
+    """Property-based check ensuring `_index_formatter` escapes and quotes."""
     out = commons_main._index_formatter(fname, "credit")
     m = re.search(r"^- \[(.*?)]\((.*?)\): ", out)
     assert m is not None
@@ -414,6 +446,7 @@ def test_index_formatter_property(fname: str) -> None:
 
 
 def test_parser_produces_typed_namespace(tmp_path: Path) -> None:
+    """Ensure the Wikimedia subparser produces a typed argparse namespace."""
     p = commons_main.parser()
     ns = p.parse_args(["-d", str(tmp_path), "File:Foo.jpg"])
 
@@ -425,6 +458,7 @@ def test_parser_produces_typed_namespace(tmp_path: Path) -> None:
 
 
 def test_handle_partial_errors_behaviour() -> None:
+    """Verify `_handle_partial_errors` swallows exceptions when configured."""
     # mixed successful result + an Exception should be swallowed when ignoring
     results = [ValueError("x"), "ok"]
     flag, vals = commons_main._handle_partial_errors(
@@ -441,6 +475,7 @@ def test_handle_partial_errors_behaviour() -> None:
 
 
 def test_handle_partial_errors_no_exceptions_returns_values() -> None:
+    """When no exceptions are present `_handle_partial_errors` should return values."""
     results = [1, 2, 3]
     flag, vals = commons_main._handle_partial_errors(
         results, ignore_individual_errors=False
@@ -450,6 +485,7 @@ def test_handle_partial_errors_no_exceptions_returns_values() -> None:
 
 
 def test_handle_partial_errors_raises_when_not_ignoring() -> None:
+    """If ignore_individual_errors is False, exceptions should propagate."""
     # when exceptions are present and not ignored an ExceptionGroup is raised
     with pytest.raises(ExceptionGroup):
         commons_main._handle_partial_errors(
@@ -518,6 +554,7 @@ def test_handle_partial_errors_swallow_exceptions_and_return_values(
 
 
 def test_credit_formatter_unknown_and_license_url_variants() -> None:
+    """Check `_credit_formatter` fallback behavior for unknown author/license."""
     ii = ImageInfoEntry(
         descriptionurl="https://commons.wikimedia.org/wiki/File:Test.jpg",
         url="https://upload.wikimedia.org/test.jpg",
@@ -537,6 +574,7 @@ def test_credit_formatter_unknown_and_license_url_variants() -> None:
 
 
 def _wrap_bold(s: str) -> str:
+    """Wrap `s` in a <b> tag (helper used by property tests)."""
     return f"<b>{s}</b>"
 
 
@@ -606,6 +644,7 @@ def test_credit_formatter_property_variants(
 
 
 def test_credit_formatter_strips_html_and_newlines() -> None:
+    """Ensure `_credit_formatter` strips HTML tags and normalizes newlines."""
     raw_author = "<b>Jane\nDoe</b>"
     ii = ImageInfoEntry(
         descriptionurl="https://commons.wikimedia.org/wiki/File:Html.jpg",
@@ -624,6 +663,7 @@ def test_credit_formatter_strips_html_and_newlines() -> None:
 
 
 def test_parser_version_action_contains_workspace_version() -> None:
+    """Verify the parser's --version action contains the workspace VERSION."""
     # find the version action and verify it contains the project VERSION
 
     p = commons_main.parser()
@@ -645,7 +685,10 @@ async def test_main_query_error_sets_query_and_generic_exit_code(
     """
 
     class BadAPIClient(_FakeClientSession):
+        """Fake client that returns deliberately malformed API JSON."""
+
         def __init__(self) -> None:
+            """Initialize with a malformed API payload (for error path tests)."""
             super().__init__()
             # deliberately malformed payload (title should be a str)
             self._api_json = {"query": {"pages": {"1": {"title": 1}}}}
@@ -653,11 +696,13 @@ async def test_main_query_error_sets_query_and_generic_exit_code(
     fake = BadAPIClient()
 
     def _client_session_factory(*_a: object, **_k: object) -> BadAPIClient:
+        """Return the BadAPIClient instance for this test."""
         return fake
 
     captured: dict[str, object] = {}
 
     def _fake_exit(code: int | object) -> None:
+        """Capture the exit code supplied by the tested function."""
         captured["code"] = code
 
     monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
@@ -682,6 +727,7 @@ async def test_main_query_error_sets_query_and_generic_exit_code(
 async def test_main_deduplicates_inputs(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Ensure duplicate inputs are deduplicated by `main`."""
     fake_sess = _FakeClientSession()
 
     fake_sess._api_json = {
@@ -704,9 +750,11 @@ async def test_main_deduplicates_inputs(
     fake_sess._file_bytes = b"abc"
 
     def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return the fake session used for deduplication test."""
         return fake_sess
 
     def _fake_exit(code: int | object) -> None:
+        """No-op replacement for sys.exit used in tests."""
         return None
 
     monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
@@ -731,6 +779,7 @@ async def test_main_deduplicates_inputs(
 async def test_index_file_created_when_missing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """When the index file is missing, `main` should create it before writing."""
     fake_sess = _FakeClientSession()
 
     fake_sess._api_json = {
@@ -752,9 +801,11 @@ async def test_index_file_created_when_missing(
     fake_sess._file_bytes = b"data"
 
     def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return the fake session used to create a missing index file."""
         return fake_sess
 
     def _fake_exit(code: int | object) -> None:
+        """No-op replacement for sys.exit used in this test."""
         return None
 
     monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
@@ -782,11 +833,15 @@ async def test_index_file_created_when_missing(
 async def test_query_batching_respects_query_limit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """With a small `_QUERY_LIMIT` the implementation should batch queries."""
     # set a small query limit to force batching
     monkeypatch.setattr(commons_main, "_QUERY_LIMIT", 1)
 
     class CountingClient(_FakeClientSession):
+        """Client that counts API query calls to validate batching behaviour."""
+
         def __init__(self) -> None:
+            """Initialize counters and placeholder responses."""
             super().__init__()
             self.query_calls = 0
             self._file_bytes = b"x"
@@ -794,6 +849,7 @@ async def test_query_batching_respects_query_limit(
             self._api_json = None
 
         def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
+            """Return different API payloads depending on the 'titles' query."""
             s = str(url)
             if "api.php" in s:
                 self.query_calls += 1
@@ -840,9 +896,11 @@ async def test_query_batching_respects_query_limit(
     fake = CountingClient()
 
     def _client_session_factory(*_a: object, **_k: object) -> CountingClient:
+        """Return the counting client used to verify batching behaviour."""
         return fake
 
     def _fake_exit(code: int | object) -> None:
+        """No-op replacement for sys.exit used in this test."""
         return None
 
     monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
@@ -872,11 +930,15 @@ async def test_query_partial_error_with_ignore_sets_partial_flag(
     monkeypatch.setattr(commons_main, "_QUERY_LIMIT", 1)
 
     class PartialFailClient(_FakeClientSession):
+        """Client that simulates one successful and one failing API batch."""
+
         def __init__(self) -> None:
+            """Configure a successful payload for the first batch."""
             super().__init__()
             self._file_bytes = b"ok"
 
         def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
+            """Return a valid response for the first title, raise for the second."""
             s = str(url)
             if "api.php" in s:
                 if "First" in s:
@@ -905,11 +967,13 @@ async def test_query_partial_error_with_ignore_sets_partial_flag(
     fake = PartialFailClient()
 
     def _client_session_factory(*_a: object, **_k: object) -> PartialFailClient:
+        """Return the partial-fail client for this test scenario."""
         return fake
 
     captured: dict[str, object] = {}
 
     def _fake_exit(code: int | object) -> None:
+        """Capture the exit code for assertions on partial error handling."""
         captured["code"] = code
 
     monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
@@ -1019,7 +1083,10 @@ async def test_fetch_error_variants(
     elif scenario in ("network_error_non_ignored", "network_error_ignored"):
 
         class MixedFetchClient(_FakeClientSession):
+            """Client mixing successful and failing file-download behaviour."""
+
             def __init__(self) -> None:
+                """Configure API pages and a valid file payload for one page."""
                 super().__init__()
                 # two pages to allow mixing broken/good behaviour
                 self._api_json = {
@@ -1051,6 +1118,7 @@ async def test_fetch_error_variants(
                 self._file_bytes = b"ok"
 
             def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
+                """Return API payload or raise for the simulated broken file URL."""
                 s = str(url)
                 if "api.php" in s:
                     return _FakeResp(json_data=self._api_json)
@@ -1067,19 +1135,28 @@ async def test_fetch_error_variants(
     elif scenario == "iter_error_ignored":
 
         class IterErrorContent(_FakeContent):
+            """Content-like object whose iterator raises to simulate stream errors."""
+
             async def iter_any(self) -> AsyncIterator[bytes]:
+                """Raise a runtime error when iterated to simulate stream failure."""
                 await asyncio.sleep(0)
                 raise RuntimeError("stream error")
                 if False:
                     yield b""
 
         class IterErrorResp(_FakeResp):
+            """Response-like object that uses `IterErrorContent` for content."""
+
             def __init__(self, *, json_data: Any | None = None) -> None:
+                """Initialize base response and attach the error-producing content."""
                 super().__init__(json_data=json_data, content_chunks=None)
                 self.content = IterErrorContent([])
 
         class IterErrorClient(_FakeClientSession):
+            """Client that returns a response whose content iterator raises."""
+
             def __init__(self) -> None:
+                """Prepare an API payload referencing the broken-stream file."""
                 super().__init__()
                 self._api_json = {
                     "query": {
@@ -1099,6 +1176,7 @@ async def test_fetch_error_variants(
                 }
 
             def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
+                """Return the API payload or an `IterErrorResp` for downloads."""
                 s = str(url)
                 if "api.php" in s:
                     return _FakeResp(json_data=self._api_json)
@@ -1109,7 +1187,10 @@ async def test_fetch_error_variants(
     elif scenario in ("timeout_non_ignored", "timeout_ignored"):
 
         class TimeoutClient(_FakeClientSession):
+            """Client that raises asyncio.TimeoutError for file downloads."""
+
             def __init__(self) -> None:
+                """Prepare API payload pointing at a file URL that times out."""
                 super().__init__()
                 self._api_json = {
                     "query": {
@@ -1129,6 +1210,7 @@ async def test_fetch_error_variants(
                 }
 
             def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
+                """Return API response or raise TimeoutError for download URL."""
                 s = str(url)
                 if "api.php" in s:
                     return _FakeResp(json_data=self._api_json)
@@ -1139,7 +1221,10 @@ async def test_fetch_error_variants(
     elif scenario == "corrupt_chunks":
 
         class CorruptClient(_FakeClientSession):
+            """Client that returns intentionally corrupted download chunks."""
+
             def __init__(self) -> None:
+                """Prepare API payload for the corrupt-chunks scenario."""
                 super().__init__()
                 self._api_json = {
                     "query": {
@@ -1159,6 +1244,7 @@ async def test_fetch_error_variants(
                 }
 
             def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
+                """Return a response whose content chunks are intentionally corrupted."""
                 s = str(url)
                 if "api.php" in s:
                     return _FakeResp(json_data=self._api_json)
@@ -1171,11 +1257,13 @@ async def test_fetch_error_variants(
         raise AssertionError("unknown scenario")
 
     def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return the configured fake client for the scenario."""
         return fake
 
     captured: dict[str, object] = {}
 
     def _fake_exit(code: int | object) -> None:
+        """Capture the exit code emitted by the run for assertions."""
         captured["code"] = code
 
     monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
@@ -1245,9 +1333,11 @@ async def test_indexing_merges_percent_encoded_existing_entry(
     fake_sess._file_bytes = b"d"
 
     def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return the prepared fake session for indexing/merge checks."""
         return fake_sess
 
     def _fake_exit(code: int | object) -> None:
+        """No-op replacement for sys.exit used in tests."""
         return None
 
     monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
