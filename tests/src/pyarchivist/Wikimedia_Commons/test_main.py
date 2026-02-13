@@ -6,8 +6,6 @@ I/O and exercise the query -> fetch -> optional indexing code paths.
 
 from __future__ import annotations
 
-from pydantic import ValidationError
-
 __all__ = ()
 
 import asyncio
@@ -132,7 +130,7 @@ async def test_query_and_fetch_writes_file(
 
     args: Args = Args(
         inputs=("File:Example.jpg",),
-        dest=tmp_path,
+        dest=Path(tmp_path),
         index=None,
         ignore_individual_errors=False,
     )
@@ -186,8 +184,8 @@ async def test_indexing_updates_index_file(
 
     args: Args = Args(
         inputs=("File:Zed.jpg",),
-        dest=tmp_path,
-        index=index_path,
+        dest=Path(tmp_path),
+        index=Path(index_path),
         ignore_individual_errors=False,
     )
 
@@ -195,8 +193,23 @@ async def test_indexing_updates_index_file(
 
     text: str = await index_path.read_text(encoding="utf-8")
     # last paragraph should contain both entries sorted (Existing, Zed.jpg)
-    assert "Existing" in text
-    assert "Zed.jpg" in text
+    paragraphs = text.strip().split("\n\n")
+
+    # header paragraph must be preserved
+    assert paragraphs[0].startswith("Header")
+
+    expected_last = (
+        "- [Existing](Existing): Existing credit\n"
+        "- [Zed.jpg](Zed.jpg): "
+        '<a href="https://commons.wikimedia.org/wiki/File:Zed.jpg">'
+        "See page for author</a>, See page for license, via Wikimedia Commons"
+    )
+    # compare the whole last paragraph (two index lines)
+    assert paragraphs[-1] == expected_last
+    # ensure entries are in alphabetical order by filename
+    lines = paragraphs[-1].splitlines()
+    assert lines[0].startswith("- [Existing]")
+    assert lines[1].startswith("- [Zed.jpg]")
 
 
 @pytest.mark.asyncio
@@ -242,7 +255,7 @@ async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partia
 
     args: Args = Args(
         inputs=("File:Good.jpg", "File:Bad.jpg"),
-        dest=tmp_path,
+        dest=Path(tmp_path),
         index=None,
         ignore_individual_errors=True,
     )
@@ -286,7 +299,7 @@ async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
 
     args: Args = Args(
         inputs=("File:Bad.jpg",),
-        dest=tmp_path,
+        dest=Path(tmp_path),
         index=None,
         ignore_individual_errors=False,
     )
@@ -298,18 +311,42 @@ async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
     assert bool(captured["code"] & commons_main.ExitCode.FETCH_ERROR)
 
 
-@pytest.mark.asyncio
-async def test_parser_validates_cli_args_with_pydantic() -> None:
-    """The `parser` should validate CLI inputs via the pydantic `Args` model
-    and raise `ValidationError` for invalid values (for example a non-existent
-    directory for `--dest`).
-    """
+def test_index_formatter_escapes_and_quotes() -> None:
+    """Ensure filenames are escaped for display and URL-quoted for links."""
+    # filename containing ']' and backslash should be escaped in the label
+    # and percent-encoded in the URL target
+    raw = r"a]b\c"
+    out = commons_main._index_formatter(raw, "credit")
 
-    parser = commons_main.parser()
-    # provide a non-existent directory as dest; pydantic DirectoryPath will
-    # reject this when the subcommand's `invoke` constructs/validates `Args`.
-    ns = parser.parse_args(["-d", "./path/does/not/exist", "File:Example.jpg"])
+    # displayed label: backslash doubled and ']' escaped
+    assert "a\\]b\\\\c" in out
+    # URL target should be percent-encoded for ']' (%5D) and '\\' (%5C)
+    assert "a%5Db%5Cc" in out
+    assert out.endswith(": credit")
 
-    with pytest.raises(ValidationError):
-        # invoke is an async function
-        await ns.invoke(ns)
+
+def test_parser_produces_typed_namespace(tmp_path: Path) -> None:
+    p = commons_main.parser()
+    ns = p.parse_args(["-d", str(tmp_path), "File:Foo.jpg"])
+
+    # argparse should have converted dest to an anyio.Path and set defaults
+    assert isinstance(ns.dest, Path)
+    assert ns.index is None
+    assert ns.ignore_individual_errors is False
+    assert ns.inputs == ["File:Foo.jpg"]
+
+
+def test_handle_partial_errors_behaviour() -> None:
+    # mixed successful result + an Exception should be swallowed when ignoring
+    results = [ValueError("x"), "ok"]
+    flag, vals = commons_main._handle_partial_errors(
+        results, ignore_individual_errors=True, error_message="err"
+    )
+    assert flag is True
+    assert vals == ("ok",)
+
+    # presence of a non-Exception BaseException should raise BaseExceptionGroup
+    with pytest.raises(BaseExceptionGroup):
+        commons_main._handle_partial_errors(
+            [ValueError("x"), KeyboardInterrupt()], ignore_individual_errors=True
+        )
