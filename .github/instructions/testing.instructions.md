@@ -12,6 +12,7 @@ Tests use `pytest` and `pytest-asyncio` for async test support. Test configurati
 ## Test layout and conventions
 
 - All tests live under `tests/` and follow `test_*.py` naming.
+- When creating new test directories (or source directories), include an `__init__.py` file so the folder is an explicit Python package. Mirror the `src/` structure under `tests/` (for example `src/module/sub.py` → `tests/module/test_sub.py`) and ensure package-style test subfolders contain `__init__.py`.
 - **One test file per source file** is the preferred layout. Mirror the `src/` structure under `tests/` (for example `src/module/sub.py` → `tests/module/test_sub.py`).
 - Test modules must define `__all__ = ()` at the top (tests do not export public symbols).
 - All tests and public code must include type annotations and module-level docstrings. Do not use `from __future__ import annotations` in tests; prefer using `typing.TYPE_CHECKING` and explicit string annotations only where necessary to avoid runtime imports.

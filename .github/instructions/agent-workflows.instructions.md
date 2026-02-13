@@ -56,6 +56,7 @@ Docstrings: Ensure that modules and exported public symbols are documented. The 
 - There is a dedicated test ensuring `pyproject.toml` and `src/pyarchivist/meta.py::VERSION` match: `tests/pyarchivist/test___init__.py`. If you bump version, update both places.
 - Tests use `pytest` and `pytest-asyncio` for async tests. Use `@pytest.mark.asyncio` for coroutine tests.
 - Tests must define `__all__ = ()` at top-level in test modules (project rule).
+- When adding new folders for Python code (source or tests), include an `__init__.py` file so the directory is an explicit Python package. Mirror the `src/` layout under `tests/` and ensure any package-style test subfolders also include `__init__.py`.
 
 ## Build & validate
 
