@@ -5,8 +5,6 @@ subcommand. Using pydantic ensures that JSON responses are validated and
 that CLI arguments are validated and canonicalized in a single place.
 """
 
-from __future__ import annotations
-
 from collections.abc import Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict

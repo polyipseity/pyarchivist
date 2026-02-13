@@ -173,13 +173,19 @@ def _credit_formatter(page: Page):
     if emd and emd.Artist and emd.Artist.value:
         raw_author = emd.Artist.value
     author = htm_esc.handle(raw_author).strip()
+    # html2text may convert tags to emphasis markers (we use `_` / `__`).
+    # treat values that are only emphasis markers or whitespace as absent so
+    # entirely-tagged authors (e.g. "<b> </b>") fall back to the default.
+    if not author.replace("_", "").strip():
+        author = ""
     if "Unknown author".casefold() in author.casefold():
         author = ""
 
     raw_lic = ""
     if emd and emd.LicenseShortName and emd.LicenseShortName.value:
         raw_lic = emd.LicenseShortName.value
-    lic = raw_lic
+    # treat whitespace-only values as absent
+    lic = raw_lic.strip()
     if "Unknown license".casefold() in lic.casefold():
         lic = ""
 
