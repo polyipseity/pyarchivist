@@ -11,7 +11,6 @@ import string
 from argparse import _VersionAction
 from collections.abc import AsyncIterator
 from os import PathLike, fspath
-from typing import Any
 from urllib.parse import quote
 
 import pytest
@@ -50,13 +49,16 @@ class _FakeResp:
     """Minimal async context manager mimicking parts of `aiohttp.Response`."""
 
     def __init__(
-        self, *, json_data: Any | None = None, content_chunks: list[bytes] | None = None
+        self,
+        *,
+        json_data: object | None = None,
+        content_chunks: list[bytes] | None = None,
     ) -> None:
         """Store provided JSON payload and content chunks for reads."""
-        self._json: Any | None = json_data
+        self._json: object | None = json_data
         self.content: _FakeContent = _FakeContent(content_chunks or [])
 
-    async def json(self) -> Any | None:
+    async def json(self) -> object | None:
         """Return the stored JSON-like payload."""
         # mimic aiohttp.Response.json()
         await asyncio.sleep(0)
@@ -85,7 +87,7 @@ class _FakeClientSession:
     def __init__(self, *args: object, **kwargs: object) -> None:
         """Initialize placeholders used by tests (api json and file bytes)."""
         # will be filled by the test via attributes
-        self._api_json: dict[str, Any] | None = None
+        self._api_json: dict[str, object] | None = None
         self._file_bytes: bytes | None = None
 
     async def __aenter__(self) -> "_FakeClientSession":
@@ -1148,7 +1150,7 @@ async def test_fetch_error_variants(
         class IterErrorResp(_FakeResp):
             """Response-like object that uses `IterErrorContent` for content."""
 
-            def __init__(self, *, json_data: Any | None = None) -> None:
+            def __init__(self, *, json_data: object | None = None) -> None:
                 """Initialize base response and attach the error-producing content."""
                 super().__init__(json_data=json_data, content_chunks=None)
                 self.content = IterErrorContent([])

@@ -4,8 +4,6 @@ Covers parsing of typical and partial MediaWiki JSON payloads and ensures
 that `_credit_formatter` handles missing/partial metadata without raising.
 """
 
-from typing import Any
-
 from pyarchivist.Wikimedia_Commons.main import _credit_formatter
 from pyarchivist.Wikimedia_Commons.models import (
     ImageInfoEntry,
@@ -16,7 +14,7 @@ from pyarchivist.Wikimedia_Commons.models import (
 __all__ = ()
 
 
-def _sample_response_with_metadata() -> dict[str, Any]:
+def _sample_response_with_metadata() -> dict[str, object]:
     """Return a sample API response containing extended metadata."""
     return {
         "query": {
@@ -46,7 +44,7 @@ def _sample_response_with_metadata() -> dict[str, Any]:
     }
 
 
-def _sample_response_without_metadata() -> dict[str, Any]:
+def _sample_response_without_metadata() -> dict[str, object]:
     """Return a sample API response with empty/absent extmetadata."""
     return {
         "query": {
