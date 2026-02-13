@@ -9,7 +9,7 @@ import argparse
 import re
 import string
 from argparse import ArgumentParser, _SubParsersAction, _VersionAction
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import pytest
@@ -192,7 +192,7 @@ def test_subparser_name_sanitized_and_description_present() -> None:
         a for a in p._actions if getattr(a, "choices", None) is not None
     )
     assert isinstance(group_untyped, _SubParsersAction)
-    group: _SubParsersAction[Any] = group_untyped  # type: ignore[reportUnknownVariableType]
+    group = cast(_SubParsersAction[Any], group_untyped)
     choices = group.choices
     # subparser for Wikimedia_Commons should be present and have the expected description
     assert choices is not None
