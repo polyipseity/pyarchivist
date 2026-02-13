@@ -6,10 +6,10 @@ factory for the CLI subcommand. Helper utilities and small types used across
 the flow are declared here as well.
 """
 
-import pathlib
 from argparse import ONE_OR_MORE, ArgumentParser
 from asyncio import create_task, gather
-from collections.abc import Callable, Collection, Iterable
+from collections.abc import Callable, Collection, Iterable, Sequence
+from dataclasses import dataclass
 from enum import IntFlag, auto, unique
 from functools import wraps
 from itertools import chain
@@ -25,7 +25,7 @@ from yarl import URL
 
 from pyarchivist.meta import LOGGER, OPEN_TEXT_OPTIONS, USER_AGENT, VERSION
 
-from .models import Args, Page, ResponseModel
+from .models import Page, ResponseModel
 
 __all__ = (
     "ExitCode",
@@ -60,10 +60,40 @@ class ExitCode(IntFlag):
     FETCH_ERROR_PARTIAL = auto()
 
 
-# The CLI argument model and response models are provided by pydantic
+@final
+@dataclass(
+    init=True,
+    repr=True,
+    eq=True,
+    order=False,
+    unsafe_hash=False,
+    frozen=True,
+    match_args=True,
+    kw_only=True,
+    slots=True,
+)
+class Args:
+    """Immutable container for parsed CLI arguments.
+
+    Attributes:
+        inputs: sequence of input titles (strings)
+        dest: destination path where files will be written
+        index: optional index file path (Markdown)
+        ignore_individual_errors: if True, continue on individual file errors
+    """
+
+    inputs: Sequence[str]
+    dest: Path
+    index: Path | None
+    ignore_individual_errors: bool
+
+    def __post_init__(self):
+        object.__setattr__(self, "inputs", tuple(self.inputs))
+
+
+# The CLI response models are provided by pydantic
 # models in :mod:`.models` (see `Args` and `ResponseModel`). This keeps
 # JSON parsing and validation centralized and more explicit.
-
 
 _INDEX_FORMAT_PATTERN = compile(r"^- \[(.+?(?<!\\))]\((.+?(?<!\\))\): (.+)$", MULTILINE)
 
@@ -244,7 +274,7 @@ async def main(args: Args):
                     filename = page.title.split(":", 1)[-1]
                     if page.imageinfo is None:
                         raise ValueError(f"Failed to fetch '{filename}'")
-                    dest_path = Path(args.dest)
+                    dest_path = args.dest
                     # ensure destination directory exists before writing files
                     await dest_path.mkdir(parents=True, exist_ok=True)
                     async with (
@@ -274,7 +304,7 @@ async def main(args: Args):
                 else:
                     LOGGER.info(f"Indexing {len(entries)} files")
 
-                    idx = Path(args.index)
+                    idx = args.index
                     await idx.parent.mkdir(parents=True, exist_ok=True)
                     try:
                         file = await idx.open(mode="xt", **OPEN_TEXT_OPTIONS)
@@ -383,10 +413,8 @@ def parser(parent: Callable[..., ArgumentParser] | None = None):
         await main(
             Args(
                 inputs=tuple(args.inputs),
-                # `pathlib.Path` must be used here for Pydantic validation
-                dest=pathlib.Path(args.dest),
-                # `pathlib.Path` must be used here for Pydantic validation
-                index=pathlib.Path(args.index) if args.index is not None else None,
+                dest=args.dest,
+                index=args.index,
                 ignore_individual_errors=args.ignore_individual_errors,
             )
         )

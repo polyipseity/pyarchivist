@@ -6,11 +6,12 @@ I/O and exercise the query -> fetch -> optional indexing code paths.
 
 from __future__ import annotations
 
+from pydantic import ValidationError
+
 __all__ = ()
 
 import asyncio
 import json
-import pathlib
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -18,7 +19,7 @@ import pytest
 from anyio import Path
 
 from pyarchivist.Wikimedia_Commons import main as commons_main
-from pyarchivist.Wikimedia_Commons.models import Args
+from pyarchivist.Wikimedia_Commons.main import Args
 
 
 class _FakeContent:
@@ -131,8 +132,7 @@ async def test_query_and_fetch_writes_file(
 
     args: Args = Args(
         inputs=("File:Example.jpg",),
-        # `pathlib.Path` must be used here for Pydantic validation
-        dest=pathlib.Path(tmp_path),
+        dest=tmp_path,
         index=None,
         ignore_individual_errors=False,
     )
@@ -186,10 +186,8 @@ async def test_indexing_updates_index_file(
 
     args: Args = Args(
         inputs=("File:Zed.jpg",),
-        # `pathlib.Path` must be used here for Pydantic validation
-        dest=pathlib.Path(tmp_path),
-        # `pathlib.Path` must be used here for Pydantic validation
-        index=pathlib.Path(index_path),
+        dest=tmp_path,
+        index=index_path,
         ignore_individual_errors=False,
     )
 
@@ -199,3 +197,119 @@ async def test_indexing_updates_index_file(
     # last paragraph should contain both entries sorted (Existing, Zed.jpg)
     assert "Existing" in text
     assert "Zed.jpg" in text
+
+
+@pytest.mark.asyncio
+async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partial_exit_code(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """When one page lacks imageinfo and --ignore-individual-errors is set the
+    fetch stage should swallow the individual error and set FETCH_ERROR_PARTIAL.
+    """
+    fake_sess = _FakeClientSession()
+
+    # Two pages: one valid, one with missing imageinfo
+    fake_sess._api_json = {
+        "query": {
+            "pages": {
+                "1": {
+                    "title": "File:Good.jpg",
+                    "imageinfo": [
+                        {
+                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Good.jpg",
+                            "url": "https://upload.wikimedia.org/good.jpg",
+                            "extmetadata": {},
+                        }
+                    ],
+                },
+                "2": {"title": "File:Bad.jpg", "imageinfo": None},
+            }
+        }
+    }
+
+    fake_sess._file_bytes = b"good-bytes"
+
+    def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
+        return fake_sess
+
+    captured: dict[str, object] = {}
+
+    def _fake_exit(code: int | object) -> None:  # type: ignore[no-redef]
+        captured["code"] = code
+
+    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
+    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+
+    args: Args = Args(
+        inputs=("File:Good.jpg", "File:Bad.jpg"),
+        dest=tmp_path,
+        index=None,
+        ignore_individual_errors=True,
+    )
+
+    await commons_main.main(args)
+
+    # Good file should be written
+    out: Path = Path(tmp_path) / "Good.jpg"
+    assert await out.exists()
+    assert await out.read_bytes() == b"good-bytes"
+
+    # Exit code should include the FETCH_ERROR_PARTIAL flag
+    assert "code" in captured
+    assert isinstance(captured["code"], commons_main.ExitCode)
+    assert bool(captured["code"] & commons_main.ExitCode.FETCH_ERROR_PARTIAL)
+
+
+@pytest.mark.asyncio
+async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """If an individual fetch error occurs and errors aren't ignored the
+    overall exit code should include FETCH_ERROR.
+    """
+    fake_sess = _FakeClientSession()
+
+    fake_sess._api_json = {
+        "query": {"pages": {"1": {"title": "File:Bad.jpg", "imageinfo": None}}}
+    }
+
+    def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
+        return fake_sess
+
+    captured: dict[str, object] = {}
+
+    def _fake_exit(code: int | object) -> None:  # type: ignore[no-redef]
+        captured["code"] = code
+
+    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
+    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+
+    args: Args = Args(
+        inputs=("File:Bad.jpg",),
+        dest=tmp_path,
+        index=None,
+        ignore_individual_errors=False,
+    )
+
+    await commons_main.main(args)
+
+    assert "code" in captured
+    assert isinstance(captured["code"], commons_main.ExitCode)
+    assert bool(captured["code"] & commons_main.ExitCode.FETCH_ERROR)
+
+
+@pytest.mark.asyncio
+async def test_parser_validates_cli_args_with_pydantic() -> None:
+    """The `parser` should validate CLI inputs via the pydantic `Args` model
+    and raise `ValidationError` for invalid values (for example a non-existent
+    directory for `--dest`).
+    """
+
+    parser = commons_main.parser()
+    # provide a non-existent directory as dest; pydantic DirectoryPath will
+    # reject this when the subcommand's `invoke` constructs/validates `Args`.
+    ns = parser.parse_args(["-d", "./path/does/not/exist", "File:Example.jpg"])
+
+    with pytest.raises(ValidationError):
+        # invoke is an async function
+        await ns.invoke(ns)

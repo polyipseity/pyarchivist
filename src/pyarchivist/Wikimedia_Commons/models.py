@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from pydantic import BaseModel, ConfigDict, DirectoryPath, FilePath, NewPath
+from pydantic import BaseModel, ConfigDict
 
 __all__ = (
     "Value",
@@ -18,7 +18,6 @@ __all__ = (
     "Page",
     "Query",
     "ResponseModel",
-    "Args",
 )
 
 
@@ -76,21 +75,5 @@ class ResponseModel(BaseModel):
     """Top-level response model for the MediaWiki API query flow."""
 
     query: Query
-
-    model_config = ConfigDict(frozen=True)
-
-
-class Args(BaseModel):
-    """Immutable, validated container for parsed CLI arguments.
-
-    Fields are compatible with the values produced by the CLI parser and are
-    validated on construction. ``inputs`` is normalized to a tuple to preserve
-    immutability semantics.
-    """
-
-    inputs: tuple[str, ...]
-    dest: DirectoryPath | NewPath
-    index: FilePath | NewPath | None = None
-    ignore_individual_errors: bool = False
 
     model_config = ConfigDict(frozen=True)
