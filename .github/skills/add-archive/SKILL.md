@@ -44,5 +44,5 @@ Provide a reproducible, auditable workflow for adding new content to `archives/`
 
 ## Notes
 
-- Use `tmp_path` and mocking for automated tests; avoid network calls in unit tests.
+- Prefer typing the pytest `tmp_path` fixture as `tmp_path: os.PathLike[str]` in test signatures. When converting path-like objects to strings, use `os.fspath(path_like)`. Use `tmp_path` and mocking for automated tests; avoid network calls in unit tests.
 - When in doubt about credit formatting or metadata, ask a human reviewer first.

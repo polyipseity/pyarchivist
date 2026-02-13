@@ -63,4 +63,4 @@ uv run pytest --cov=./ --cov-report=term-missing
 ## Common pitfalls
 
 - Avoid reliance on external services in unit tests; use mocks, fixtures, or recorded responses.
-- For filesystem tests, use `tmp_path` fixtures and avoid assumptions about current working directory.
+- For filesystem tests, use `tmp_path` fixtures and avoid assumptions about current working directory. Prefer annotating the `tmp_path` fixture parameter as `tmp_path: os.PathLike[str]` in test signatures and, when converting any path-like object to a string, always use `os.fspath(path_like)` (do not call `str()` on path-like objects).

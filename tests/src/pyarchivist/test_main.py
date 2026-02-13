@@ -9,7 +9,8 @@ import argparse
 import re
 import string
 from argparse import ArgumentParser, _SubParsersAction, _VersionAction
-from typing import Any, cast
+from os import PathLike, fspath
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote
 
 import pytest
@@ -31,12 +32,12 @@ from pyarchivist.Wikimedia_Commons.models import (
 __all__ = ()
 
 
-def test_top_level_parser_includes_wikimedia_subparser(tmp_path: Path) -> None:
+def test_top_level_parser_includes_wikimedia_subparser(tmp_path: PathLike[str]) -> None:
     """Verify the top-level parser includes the Wikimedia_Commons subparser."""
     p: ArgumentParser = pkg_main.parser()
 
     # ensure subcommand exists and delegates to the Wikimedia_Commons parser
-    ns = p.parse_args(["Wikimedia_Commons", "-d", str(tmp_path), "File:Foo.jpg"])
+    ns = p.parse_args(["Wikimedia_Commons", "-d", fspath(tmp_path), "File:Foo.jpg"])
 
     # subparser should have produced an `invoke` coroutine factory
     assert hasattr(ns, "invoke")
@@ -192,7 +193,10 @@ def test_subparser_name_sanitized_and_description_present() -> None:
         a for a in p._actions if getattr(a, "choices", None) is not None
     )
     assert isinstance(group_untyped, _SubParsersAction)
-    group = cast(_SubParsersAction[Any], group_untyped)
+    if TYPE_CHECKING:
+        group = cast(_SubParsersAction[Any], group_untyped)
+    else:
+        group = group_untyped
     choices = group.choices
     # subparser for Wikimedia_Commons should be present and have the expected description
     assert choices is not None

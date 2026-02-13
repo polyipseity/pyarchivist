@@ -97,7 +97,7 @@ Adjust the list above to match this submodule; paths below assume this folder is
 
 ## Agent Code Conventions
 
-- Prefer `anyio.Path` for file/script identifiers and async filesystem operations. APIs that accept file/script identifiers must accept `os.PathLike` or `anyio.Path` (for example, call sites may pass `Path(__file__)` where `Path` is `anyio.Path`). When a string path is required use `os.fspath(path_like)` rather than `str(path_like)`.
+- Prefer `anyio.Path` for file/script identifiers and async filesystem operations. APIs that accept file/script identifiers must accept `os.PathLike` or `anyio.Path` (for example, call sites may pass `Path(__file__)` where `Path` is `anyio.Path`). In tests prefer annotating the `pytest` `tmp_path` fixture as `tmp_path: os.PathLike[str]` (do not use `pathlib.Path` or plain `Path` annotations). When a string path is required, always use `os.fspath(path_like)` rather than `str(path_like)`.
 - Use timezone-aware UTC datetimes: prefer `datetime.now(timezone.utc)` rather than `datetime.utcnow()` and keep ISO timestamps timezone-aware.
 - Imports must be at module top-level (no inline/runtime imports). This is enforced by Ruff's `import-outside-top-level` rule (PLC0415).
 - Avoid aliasing imports to short, underscore-prefixed names (for example `from module import name as _name`). This pattern reduces readability and is discouraged. Prefer importing the symbol by its natural name (`from module import name`) or importing the module and using qualified access (`import module; module.name`). Only use `as` when necessary to avoid a conflict or when there is a clear, documented reason.

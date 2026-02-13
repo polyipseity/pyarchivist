@@ -10,6 +10,7 @@ import re
 import string
 from argparse import _VersionAction
 from collections.abc import AsyncIterator
+from os import PathLike, fspath
 from typing import Any
 from urllib.parse import quote
 
@@ -112,7 +113,7 @@ class _FakeClientSession:
 
 @pytest.mark.asyncio
 async def test_query_and_fetch_writes_file(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
     """Full flow: query returns metadata and a subsequent fetch writes the file."""
     fake_sess = _FakeClientSession()
@@ -194,7 +195,7 @@ async def test_query_and_fetch_writes_file(
 )
 async def test_indexing_updates_index_file(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    tmp_path: PathLike[str],
     initial_index: str,
     expected_lines: list[str],
 ) -> None:
@@ -262,7 +263,7 @@ async def test_indexing_updates_index_file(
 
 @pytest.mark.asyncio
 async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partial_exit_code(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
     """When one page lacks imageinfo and --ignore-individual-errors is set the
     fetch stage should swallow the individual error and set FETCH_ERROR_PARTIAL.
@@ -325,7 +326,7 @@ async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partia
 
 @pytest.mark.asyncio
 async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
     """If an individual fetch error occurs and errors aren't ignored the
     overall exit code should include FETCH_ERROR.
@@ -445,10 +446,10 @@ def test_index_formatter_property(fname: str) -> None:
     assert expected in link
 
 
-def test_parser_produces_typed_namespace(tmp_path: Path) -> None:
+def test_parser_produces_typed_namespace(tmp_path: PathLike[str]) -> None:
     """Ensure the Wikimedia subparser produces a typed argparse namespace."""
     p = commons_main.parser()
-    ns = p.parse_args(["-d", str(tmp_path), "File:Foo.jpg"])
+    ns = p.parse_args(["-d", fspath(tmp_path), "File:Foo.jpg"])
 
     # argparse should have converted dest to an anyio.Path and set defaults
     assert isinstance(ns.dest, Path)
@@ -678,7 +679,7 @@ def test_parser_version_action_contains_workspace_version() -> None:
 
 @pytest.mark.asyncio
 async def test_main_query_error_sets_query_and_generic_exit_code(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
     """If the API returns invalid/invalidatable JSON the query stage should set
     QUERY_ERROR (and the outer handler will set GENERIC_ERROR too).
@@ -725,7 +726,7 @@ async def test_main_query_error_sets_query_and_generic_exit_code(
 
 @pytest.mark.asyncio
 async def test_main_deduplicates_inputs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
     """Ensure duplicate inputs are deduplicated by `main`."""
     fake_sess = _FakeClientSession()
@@ -777,7 +778,7 @@ async def test_main_deduplicates_inputs(
 
 @pytest.mark.asyncio
 async def test_index_file_created_when_missing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
     """When the index file is missing, `main` should create it before writing."""
     fake_sess = _FakeClientSession()
@@ -831,7 +832,7 @@ async def test_index_file_created_when_missing(
 
 @pytest.mark.asyncio
 async def test_query_batching_respects_query_limit(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
     """With a small `_QUERY_LIMIT` the implementation should batch queries."""
     # set a small query limit to force batching
@@ -921,7 +922,7 @@ async def test_query_batching_respects_query_limit(
 
 @pytest.mark.asyncio
 async def test_query_partial_error_with_ignore_sets_partial_flag(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
     """Simulate one API query raising while the other succeeds; with
     --ignore-individual-errors the partial query should be swallowed and
@@ -1034,7 +1035,7 @@ async def test_query_partial_error_with_ignore_sets_partial_flag(
 )
 async def test_fetch_error_variants(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    tmp_path: PathLike[str],
     scenario: str,
     ignore: bool,
     expect_written: list[str],
@@ -1307,7 +1308,7 @@ async def test_fetch_error_variants(
 
 @pytest.mark.asyncio
 async def test_indexing_merges_percent_encoded_existing_entry(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
     """Existing index lines with percent-encoded filenames should be
     matched and updated rather than duplicated.
