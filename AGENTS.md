@@ -1,5 +1,3 @@
-<!-- markdownlint-disable-file MD013 MD036 -->
-
 # pyarchivist AGENTS
 
 Treat this folder as the project root. This document describes repository conventions, developer workflow, and release steps for the pyarchivist submodule.

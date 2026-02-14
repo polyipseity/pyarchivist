@@ -1,5 +1,3 @@
-<!-- markdownlint-disable-file MD013 MD036 -->
-
 # Archive Format & Indexing
 
 This file documents the expected layout, naming, and metadata for archives

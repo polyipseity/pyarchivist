@@ -1,5 +1,3 @@
-<!-- markdownlint-disable-file MD013 MD036 -->
-
 # Agent Workflows & Quick Checklist
 
 This short reference is for AI agents and automation that will be making changes in this repository. It's intentionally concise and focused on executable steps and project-specific checks — do the steps in order.
