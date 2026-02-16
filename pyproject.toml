@@ -4,9 +4,24 @@ build-backend = "uv_build"
 
 # update `src/pyarchivist/meta.py`
 [project]
+name = "pyarchivist"
+version = "2.1.0"
+requires-python = ">=3.12.0"
+description = "Archive things from the Internet."
+license = {file = "LICENSE.txt"}
+readme = "README.md"
+dependencies = [
+  "aiohttp>=3.8.4",
+  "anyio>=3.6.2",
+  "html2text>=2020.1.16",
+  "pydantic>=2.12.0",
+  "yarl>=1.9.2",
+]
+
 authors = [
     {name = "William So", email = "polyipseity@gmail.com"},
 ]
+keywords = []
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
@@ -28,21 +43,6 @@ classifiers = [
     "Topic :: Utilities",
     "Typing :: Typed",
 ]
-dependencies = [
-    "aiohttp>=3.8.4",
-    "anyio>=3.6.2",
-    "html2text>=2020.1.16",
-    "pydantic>=2.12.0",
-    "yarl>=1.9.2",
-]
-
-description = "Archive things from the Internet."
-keywords = []
-license = {file = "LICENSE.txt"}
-name = "pyarchivist"
-readme = "README.md"
-requires-python = ">=3.12.0"
-version = "2.1.0"
 
 [project.scripts]
 pyarchivist = "pyarchivist.__main__:main"
@@ -64,7 +64,12 @@ dev = [
 ]
 
 [tool.pyright]
-exclude = ["**/node_modules", "**/__pycache__", "**/.*", ".venv"]
+exclude = [
+  "**/node_modules",
+  "**/__pycache__",
+  "**/.*",
+  ".venv",
+]
 typeCheckingMode = "strict"
 venv = ".venv"
 venvPath = "."
@@ -77,12 +82,12 @@ strictListInference = true
 strictSetInference = true
 
 [[tool.pyright.executionEnvironments]]
-root = "src"
-
-[[tool.pyright.executionEnvironments]]
 extraPaths = ["src"]
 reportPrivateUsage = "none"
 root = "tests"
+
+[[tool.pyright.executionEnvironments]]
+root = "src"
 
 [tool.pytest.ini_options]
 addopts = ["--cov=./", "--cov-report=term-missing", "--dist=loadscope", "-n=auto", "--strict-markers"]
