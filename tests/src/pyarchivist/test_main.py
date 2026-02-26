@@ -173,7 +173,7 @@ def test_parser_accepts_parent_factory_and_forwards_kwargs() -> None:
     """Verify `parser(parent=...)` forwards kwargs to the parent factory."""
     called: dict[str, object] = {}
 
-    def factory(*_a: object, **kwargs: Any) -> ArgumentParser:
+    def factory(*args: object, **kwargs: Any) -> ArgumentParser:
         """Factory that records received kwargs and returns a simple ArgumentParser."""
         # record that the factory received the expected prog kwarg
         called["prog"] = kwargs.get("prog")
