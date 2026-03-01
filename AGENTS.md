@@ -358,6 +358,3 @@ def _internal() -> None:
 ## Maintainers
 
 - List of maintainers or contact details (add e-mail or GitHub handles here).
-
-- Missing GPG key: ensure your key is available to Git and that `gpg` is in PATH.
-- Failed tests: run `pytest` locally; ensure dependencies are installed in the venv.
