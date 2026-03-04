@@ -4,17 +4,17 @@ These tests mock `aiohttp.ClientSession` at the module level to avoid network
 I/O and exercise the query -> fetch -> optional indexing code paths.
 """
 
-import asyncio
 import json
 import re
 import string
 from argparse import _VersionAction
+from asyncio import TimeoutError
 from collections.abc import AsyncIterator
 from os import PathLike, fspath
 from urllib.parse import quote
 
 import pytest
-from anyio import Path
+from anyio import Path, sleep
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -41,7 +41,7 @@ class _FakeContent:
     async def iter_any(self) -> AsyncIterator[bytes]:
         """Async iterator that yields configured byte chunks."""
         for c in self._chunks:
-            await asyncio.sleep(0)
+            await sleep(0)
             yield c
 
 
@@ -61,13 +61,13 @@ class _FakeResp:
     async def json(self) -> object | None:
         """Return the stored JSON-like payload."""
         # mimic aiohttp.Response.json()
-        await asyncio.sleep(0)
+        await sleep(0)
         return self._json
 
     async def text(self) -> str:
         """Return text; if JSON payload is present return its JSON string."""
         # mimic aiohttp.Response.text(); return a JSON string when json data set
-        await asyncio.sleep(0)
+        await sleep(0)
         return json.dumps(self._json) if self._json is not None else ""
 
     async def __aenter__(self) -> "_FakeResp":
@@ -113,7 +113,7 @@ class _FakeClientSession:
             return _FakeResp(content_chunks=chunks)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_query_and_fetch_writes_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
@@ -176,7 +176,7 @@ async def test_query_and_fetch_writes_file(
     assert await out.read_bytes() == file_bytes
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "initial_index,expected_lines",
     [
@@ -263,7 +263,7 @@ async def test_indexing_updates_index_file(
         assert paragraphs == expected_lines
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partial_exit_code(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
@@ -326,7 +326,7 @@ async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partia
     assert bool(captured["code"] & commons_main.ExitCode.FETCH_ERROR_PARTIAL)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
@@ -679,7 +679,7 @@ def test_parser_version_action_contains_workspace_version() -> None:
     assert version_actions[0].version.endswith(f"v{VERSION}")
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_main_query_error_sets_query_and_generic_exit_code(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
@@ -726,7 +726,7 @@ async def test_main_query_error_sets_query_and_generic_exit_code(
     assert bool(captured["code"] & commons_main.ExitCode.GENERIC_ERROR)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_main_deduplicates_inputs(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
@@ -778,7 +778,7 @@ async def test_main_deduplicates_inputs(
     assert await out.read_bytes() == b"abc"
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_index_file_created_when_missing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
@@ -832,7 +832,7 @@ async def test_index_file_created_when_missing(
     assert "NewIndex.jpg" in text
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_query_batching_respects_query_limit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
@@ -922,7 +922,7 @@ async def test_query_batching_respects_query_limit(
     assert fake.query_calls == 2
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_query_partial_error_with_ignore_sets_partial_flag(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
@@ -1001,7 +1001,7 @@ async def test_query_partial_error_with_ignore_sets_partial_flag(
     assert bool(captured["code"] & commons_main.ExitCode.QUERY_ERROR_PARTIAL)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "scenario,ignore,expect_written,expected_flags",
     [
@@ -1051,7 +1051,7 @@ async def test_fetch_error_variants(
     - network_error_non_ignored: GET raises during download (non-ignored)
     - network_error_ignored: GET raises but errors are ignored
     - iter_error_ignored: response.iter_any() raises but errors are ignored
-    - timeout_*: simulate asyncio.TimeoutError during download
+    - timeout_*: simulate a timeout error during download
     - corrupt_chunks: server returns corrupted/altered chunks (no fetch error)
     """
 
@@ -1142,7 +1142,7 @@ async def test_fetch_error_variants(
 
             async def iter_any(self) -> AsyncIterator[bytes]:
                 """Raise a runtime error when iterated to simulate stream failure."""
-                await asyncio.sleep(0)
+                await sleep(0)
                 raise RuntimeError("stream error")
                 if False:
                     yield b""
@@ -1190,7 +1190,7 @@ async def test_fetch_error_variants(
     elif scenario in ("timeout_non_ignored", "timeout_ignored"):
 
         class TimeoutClient(_FakeClientSession):
-            """Client that raises asyncio.TimeoutError for file downloads."""
+            """Client that raises an `TimeoutError` for file downloads."""
 
             def __init__(self) -> None:
                 """Prepare API payload pointing at a file URL that times out."""
@@ -1217,7 +1217,7 @@ async def test_fetch_error_variants(
                 s = str(url)
                 if "api.php" in s:
                     return _FakeResp(json_data=self._api_json)
-                raise asyncio.TimeoutError("timeout")
+                raise TimeoutError("timeout")
 
         fake = TimeoutClient()
 
@@ -1308,7 +1308,7 @@ async def test_fetch_error_variants(
         assert bool(code & flag)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_indexing_merges_percent_encoded_existing_entry(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:

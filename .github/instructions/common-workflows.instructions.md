@@ -35,6 +35,9 @@ Testing:
     uv run pytest
     ```
 
+    When testing asynchronous routines, rely on AnyIO and Asyncer helpers
+    and avoid importing `asyncio` directly.
+
 - When adding new behavior, add tests that reflect the intended usage. Keep
   tests small and focused; one test file per module is preferred.
 

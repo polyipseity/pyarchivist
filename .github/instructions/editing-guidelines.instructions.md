@@ -35,7 +35,7 @@ Tests:
 
 - Name tests `test_*.py` and keep them alongside the module under `tests/`.
 - When creating new source or test folders, include an `__init__.py` so the directory is an explicit Python package; this applies to both production code under `src/` and mirrored test packages under `tests/`.
-- When testing async code, use `async def` tests with `@pytest.mark.asyncio`.
+- When testing async code, use `async def` tests with `@pytest.mark.anyio`.
 
 Commits & PRs:
 

@@ -13,8 +13,11 @@ readme = "README.md"
 dependencies = [
   "aiohttp>=3.8.4",
   "anyio>=3.6.2",
+  "asyncer>=0.0.17",
   "html2text>=2020.1.16",
   "pydantic>=2.12.0",
+  "uvloop>=0.22.0; platform_system != 'Windows'",
+  "winloop>=0.5.0; platform_system == 'Windows'",
   "yarl>=1.9.2",
 ]
 
@@ -45,7 +48,7 @@ classifiers = [
 ]
 
 [project.scripts]
-pyarchivist = "pyarchivist.__main__:main"
+pyarchivist = "pyarchivist.__main__:__main__"
 
 [project.urls]
 repository = "https://github.com/polyipseity/pyarchivist.git"
@@ -56,7 +59,6 @@ dev = [
   "prek>=0.3.0",
   "pyright>=1.1.408",
   "pytest>=9.0.0",
-  "pytest-asyncio>=1.3.0",
   "pytest-cov>=7.0.0",
   "pytest-xdist>=3.8.0",
   "ruff>=0.15.0",

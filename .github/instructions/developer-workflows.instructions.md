@@ -35,6 +35,7 @@ Script & CI conventions:
 - CI workflows should install dependencies deterministically (use `uv sync --locked` in CI).
 - Prefer the `uv_build` PEP 517 build backend for pure-Python projects; run packaging with `uv build --locked`. Add `uv_build` to `[build-system].requires` and pin it with an upper bound (for example: `uv_build>=0.10.0,<0.11.0`).
 - Ensure tests and ruff checks run on PRs; `AGENTS.md` lists the CI expectations.
+- The codebase is async-first; avoid importing `asyncio` directly and use AnyIO/Asyncer helpers for concurrency. When adding async functionality, add `anyio` and `asyncer` to `pyproject.toml` and update `uv.lock`.
 - Agents: see `.github/instructions/agent-workflows.instructions.md` for a concise, runnable pre-PR checklist and smoke-test examples.
 - Quick CLI smoke test (use a temp dir):
 

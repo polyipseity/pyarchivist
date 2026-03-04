@@ -14,7 +14,7 @@ from anyio import Path
 __all__ = ()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_pyproject_and_init_version_match():
     """Ensure [project].version in pyproject.toml equals `src/pyarchivist/meta.py::VERSION`.
 

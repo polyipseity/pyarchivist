@@ -37,4 +37,4 @@ Notes for CI:
 When adding a new dependency:
 
 - Add the package to `pyproject.toml` under the appropriate section and run
-  `uv sync` to update `uv.lock` and commit the lockfile.
+  `uv sync` to update `uv.lock` and commit the lockfile. Include `anyio` and `asyncer` if the new dependency enables any asynchronous functionality.

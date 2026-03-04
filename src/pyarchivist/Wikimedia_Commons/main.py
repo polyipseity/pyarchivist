@@ -7,7 +7,6 @@ the flow are declared here as well.
 """
 
 from argparse import ONE_OR_MORE, ArgumentParser
-from asyncio import create_task, gather
 from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass
 from enum import IntFlag, auto, unique
@@ -20,6 +19,7 @@ from urllib.parse import quote, unquote
 
 from aiohttp import ClientSession, TCPConnector
 from anyio import Path
+from asyncer import SoonValue, create_task_group
 from html2text import HTML2Text
 from yarl import URL
 
@@ -234,9 +234,14 @@ async def main(args: Args):
             try:
                 LOGGER.info(f"Querying {len(inputs)} files")
 
-                async def query(inputs: Iterable[str]):
+                async def query(inputs: Iterable[str]) -> Iterable[tuple[str, Page]]:
                     """Query the Wikimedia Commons API for the given titles and
-                    return the parsed pages items."""
+                    return the parsed pages items.
+
+                    The return type is an iterable of ``(page_id, Page)`` tuples,
+                    which allows callers to combine multiple batch results without
+                    losing the original identifiers.
+                    """
                     async with sess.get(
                         URL.build(
                             scheme="https",
@@ -255,13 +260,18 @@ async def main(args: Args):
                     data = ResponseModel.model_validate_json(text)
                     return data.query.pages.items()
 
-                queries = await gather(
-                    *map(
-                        lambda idx: query(inputs[idx : idx + _QUERY_LIMIT]),
-                        range(0, len(inputs), _QUERY_LIMIT),
-                    ),
-                    return_exceptions=True,
-                )
+                # run query batches concurrently using structural concurrency
+                # run query batches concurrently using soonify for brevity
+                # run query batches concurrently using structural concurrency
+                # the ``SoonValue`` objects capture return values that we can
+                # inspect after the task group closes (see Asyncer documentation).
+                svs: list[SoonValue[Iterable[tuple[str, Page]]]] = []
+                async with create_task_group() as tg:
+                    for idx in range(0, len(inputs), _QUERY_LIMIT):
+                        svs.append(tg.soonify(query)(inputs[idx : idx + _QUERY_LIMIT]))
+                # at this point the task group has exited and all queries have
+                # completed; we can safely access ``.value`` on each SoonValue.
+                queries = [sv.value for sv in svs]
                 error, queries = _handle_partial_errors(
                     queries,
                     ignore_individual_errors=args.ignore_individual_errors,
@@ -269,8 +279,12 @@ async def main(args: Args):
                 )
                 if error:
                     ec |= ExitCode.QUERY_ERROR_PARTIAL
+                # ``id`` is a builtin, so rename to ``page_id`` for clarity and
+                # to give mypy/pyright an explicit variable name.
                 pages = tuple(
-                    {id: page for id, page in chain.from_iterable(queries)}.values()
+                    {
+                        page_id: page for page_id, page in chain.from_iterable(queries)
+                    }.values()
                 )
             except Exception:
                 LOGGER.exception("Error querying")
@@ -279,9 +293,14 @@ async def main(args: Args):
             try:
                 LOGGER.info(f"Fetching {len(pages)} files")
 
-                async def fetch(page: Page):
-                    """Download the binary content for `page`, write to `dest`, and
-                    return (filename, index_line)."""
+                async def fetch(page: Page) -> tuple[str, str]:
+                    """Download the binary content for ``page`` and return a tuple of
+                    ``(filename, index_line)``.
+
+                    The index line is expensive to compute, so we offload the
+                    synchronous formatting functions to worker threads via
+                    :func:`asyncify`.
+                    """
                     filename = page.title.split(":", 1)[-1]
                     if page.imageinfo is None:
                         raise ValueError(f"Failed to fetch '{filename}'")
@@ -295,9 +314,18 @@ async def main(args: Args):
                         LOGGER.info(f"Fetching '{filename}'")
                         async for chunk in resp.content.iter_any():
                             await file.write(chunk)
-                    return filename, _index_formatter(filename, _credit_formatter(page))
+                    # compute credit/index lines on the event loop as they are not I/O-bound
+                    credit = _credit_formatter(page)
+                    index_line = _index_formatter(filename, credit)
+                    return filename, index_line
 
-                entries = await gather(*map(fetch, pages), return_exceptions=True)
+                # fetch pages concurrently, capturing their return values with
+                # SoonValue so we can access them after the task group exits.
+                fetch_svs: list[SoonValue[tuple[str, str]]] = []
+                async with create_task_group() as tg:
+                    for page in pages:
+                        fetch_svs.append(tg.soonify(fetch)(page))
+                entries = [sv.value for sv in fetch_svs]
                 error, entries = _handle_partial_errors(
                     entries,
                     ignore_individual_errors=args.ignore_individual_errors,
@@ -326,29 +354,23 @@ async def main(args: Args):
 
                     async with await idx.open(mode="r+t", **OPEN_TEXT_OPTIONS) as file:
                         read = await file.read()
-                        seek = create_task(file.seek(0))
-                        try:
-                            paragraphs = read.strip().split("\n\n")
-                            index = {
-                                unquote(match[2]): match[0]
-                                for match in _INDEX_FORMAT_PATTERN.finditer(
-                                    paragraphs[-1]
-                                )
-                            }
-                            for filename, entry in entries:
-                                index[filename] = entry
-                            paragraphs[-1] = "\n".join(
-                                value
-                                for _, value in sorted(
-                                    index.items(), key=lambda item: item[0]
-                                )
+                        await file.seek(0)
+                        paragraphs = read.strip().split("\n\n")
+                        index: dict[str, str] = {
+                            unquote(match[2]): match[0]
+                            for match in _INDEX_FORMAT_PATTERN.finditer(paragraphs[-1])
+                        }
+                        for filename, entry in entries:
+                            index[filename] = entry
+                        paragraphs[-1] = "\n".join(
+                            value
+                            for _, value in sorted(
+                                index.items(), key=lambda item: item[0]
                             )
-                            text = "\n\n".join(paragraphs) + "\n"
-                            await seek
-                            await file.write(text)
-                            await file.truncate()
-                        finally:
-                            seek.cancel()
+                        )
+                        text = "\n\n".join(paragraphs) + "\n"
+                        await file.write(text)
+                        await file.truncate()
             except Exception:
                 LOGGER.exception("Error indexing")
                 ec |= ExitCode.INDEX_ERROR
