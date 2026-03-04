@@ -19,7 +19,7 @@ from urllib.parse import quote, unquote
 
 from aiohttp import ClientSession, TCPConnector
 from anyio import Path
-from asyncer import SoonValue, create_task_group
+from asyncer import SoonValue, asyncify, create_task_group
 from html2text import HTML2Text
 from yarl import URL
 
@@ -314,9 +314,9 @@ async def main(args: Args):
                         LOGGER.info(f"Fetching '{filename}'")
                         async for chunk in resp.content.iter_any():
                             await file.write(chunk)
-                    # compute credit/index lines on the event loop as they are not I/O-bound
-                    credit = _credit_formatter(page)
-                    index_line = _index_formatter(filename, credit)
+                    # compute credit/index lines off the event loop
+                    credit = await asyncify(_credit_formatter)(page)
+                    index_line = await asyncify(_index_formatter)(filename, credit)
                     return filename, index_line
 
                 # fetch pages concurrently, capturing their return values with
