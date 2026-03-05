@@ -43,19 +43,25 @@ class _OpenOptions(TypedDict):
 
 
 # update `pyproject.toml`
+"""Package authors (name and email) for USER_AGENT and metadata."""
 AUTHORS = (
     {
         "name": "William So",
         "email": "polyipseity@gmail.com",
     },
 )
+"""Package display name."""
 NAME = "pyarchivist"
+"""Package version (keep in sync with pyproject.toml)."""
 VERSION = "2.1.0"
 
+"""Package-level logger."""
 LOGGER = getLogger(NAME)
+"""Default options for opening text files (encoding, errors, newline)."""
 OPEN_TEXT_OPTIONS: _OpenOptions = {
     "encoding": "UTF-8",
     "errors": "strict",
     "newline": None,
 }
+"""HTTP User-Agent string for API requests."""
 USER_AGENT = f"{NAME}/{VERSION} ({AUTHORS[0]['email']}) Python/{version}"

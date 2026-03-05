@@ -34,9 +34,13 @@ __all__ = (
     "parser",
 )
 
+"""Maximum concurrent HTTP requests per host for the aiohttp connector."""
 _MAX_CONCURRENT_REQUESTS_PER_HOST = 1
+"""Characters left unescaped in URL percent-encoding for Commons URLs."""
 _PERCENT_ESCAPE_SAFE = "/,"
+"""Number of page titles per API query batch."""
 _QUERY_LIMIT = 50
+"""Type variable for generic helpers in this module."""
 _T = TypeVar("_T")
 
 
@@ -96,6 +100,7 @@ class Args:
 # models in :mod:`.models` (see `Args` and `ResponseModel`). This keeps
 # JSON parsing and validation centralized and more explicit.
 
+"""Regex matching index.md lines: - [display](url): credit."""
 _INDEX_FORMAT_PATTERN = compile(r"^- \[(.+?(?<!\\))]\((.+?(?<!\\))\): (.+)$", MULTILINE)
 
 
@@ -234,38 +239,39 @@ async def main(args: Args):
             try:
                 LOGGER.info(f"Querying {len(inputs)} files")
 
-                async def query(inputs: Iterable[str]) -> Iterable[tuple[str, Page]]:
+                async def query(
+                    inputs: Iterable[str],
+                ) -> Iterable[tuple[str, Page]] | BaseException:
                     """Query the Wikimedia Commons API for the given titles and
-                    return the parsed pages items.
-
-                    The return type is an iterable of ``(page_id, Page)`` tuples,
-                    which allows callers to combine multiple batch results without
-                    losing the original identifiers.
+                    return the parsed pages items, or the exception if the query fails.
                     """
-                    async with sess.get(
-                        URL.build(
-                            scheme="https",
-                            host="commons.wikimedia.org",
-                            path="/w/api.php",
-                            query={
-                                "format": "json",
-                                "action": "query",
-                                "titles": "|".join(inputs),
-                                "prop": "imageinfo",
-                                "iiprop": "extmetadata|url",
-                            },
-                        )
-                    ) as resp:
-                        text = await resp.text()
-                    data = ResponseModel.model_validate_json(text)
-                    return data.query.pages.items()
+                    try:
+                        async with sess.get(
+                            URL.build(
+                                scheme="https",
+                                host="commons.wikimedia.org",
+                                path="/w/api.php",
+                                query={
+                                    "format": "json",
+                                    "action": "query",
+                                    "titles": "|".join(inputs),
+                                    "prop": "imageinfo",
+                                    "iiprop": "extmetadata|url",
+                                },
+                            )
+                        ) as resp:
+                            text = await resp.text()
+                        data = ResponseModel.model_validate_json(text)
+                        return data.query.pages.items()
+                    except BaseException as e:
+                        return e
 
                 # run query batches concurrently using structural concurrency
                 # run query batches concurrently using soonify for brevity
                 # run query batches concurrently using structural concurrency
                 # the ``SoonValue`` objects capture return values that we can
                 # inspect after the task group closes (see Asyncer documentation).
-                svs: list[SoonValue[Iterable[tuple[str, Page]]]] = []
+                svs: list[SoonValue[Iterable[tuple[str, Page]] | BaseException]] = []
                 async with create_task_group() as tg:
                     for idx in range(0, len(inputs), _QUERY_LIMIT):
                         svs.append(tg.soonify(query)(inputs[idx : idx + _QUERY_LIMIT]))
@@ -293,35 +299,34 @@ async def main(args: Args):
             try:
                 LOGGER.info(f"Fetching {len(pages)} files")
 
-                async def fetch(page: Page) -> tuple[str, str]:
+                async def fetch(page: Page) -> tuple[str, str] | BaseException:
                     """Download the binary content for ``page`` and return a tuple of
-                    ``(filename, index_line)``.
-
-                    The index line is expensive to compute, so we offload the
-                    synchronous formatting functions to worker threads via
-                    :func:`asyncify`.
+                    ``(filename, index_line)``, or the exception if the fetch fails.
                     """
-                    filename = page.title.split(":", 1)[-1]
-                    if page.imageinfo is None:
-                        raise ValueError(f"Failed to fetch '{filename}'")
-                    dest_path = args.dest
-                    # ensure destination directory exists before writing files
-                    await dest_path.mkdir(parents=True, exist_ok=True)
-                    async with (
-                        sess.get(page.imageinfo[0].url) as resp,
-                        await (dest_path / filename).open(mode="wb") as file,
-                    ):
-                        LOGGER.info(f"Fetching '{filename}'")
-                        async for chunk in resp.content.iter_any():
-                            await file.write(chunk)
-                    # compute credit/index lines off the event loop
-                    credit = await asyncify(_credit_formatter)(page)
-                    index_line = await asyncify(_index_formatter)(filename, credit)
-                    return filename, index_line
+                    try:
+                        filename = page.title.split(":", 1)[-1]
+                        if page.imageinfo is None:
+                            raise ValueError(f"Failed to fetch '{filename}'")
+                        dest_path = args.dest
+                        # ensure destination directory exists before writing files
+                        await dest_path.mkdir(parents=True, exist_ok=True)
+                        async with (
+                            sess.get(page.imageinfo[0].url) as resp,
+                            await (dest_path / filename).open(mode="wb") as file,
+                        ):
+                            LOGGER.info(f"Fetching '{filename}'")
+                            async for chunk in resp.content.iter_any():
+                                await file.write(chunk)
+                        # compute credit/index lines off the event loop
+                        credit = await asyncify(_credit_formatter)(page)
+                        index_line = await asyncify(_index_formatter)(filename, credit)
+                        return filename, index_line
+                    except BaseException as e:
+                        return e
 
                 # fetch pages concurrently, capturing their return values with
                 # SoonValue so we can access them after the task group exits.
-                fetch_svs: list[SoonValue[tuple[str, str]]] = []
+                fetch_svs: list[SoonValue[tuple[str, str] | BaseException]] = []
                 async with create_task_group() as tg:
                     for page in pages:
                         fetch_svs.append(tg.soonify(fetch)(page))
