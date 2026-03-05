@@ -11,6 +11,7 @@ import tomllib
 import pytest
 from anyio import Path
 
+"""Public symbols exported by this module (none)."""
 __all__ = ()
 
 

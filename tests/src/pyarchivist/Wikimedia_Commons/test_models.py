@@ -11,6 +11,7 @@ from pyarchivist.Wikimedia_Commons.models import (
     ResponseModel,
 )
 
+"""Public symbols exported by this module (none)."""
 __all__ = ()
 
 

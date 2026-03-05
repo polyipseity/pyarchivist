@@ -27,6 +27,7 @@ from pyarchivist.meta import LOGGER, OPEN_TEXT_OPTIONS, USER_AGENT, VERSION
 
 from .models import Page, ResponseModel
 
+"""Public symbols exported by this module."""
 __all__ = (
     "ExitCode",
     "Args",

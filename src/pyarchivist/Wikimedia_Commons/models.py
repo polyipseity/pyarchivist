@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict
 
+"""Public symbols exported by this module."""
 __all__ = (
     "Value",
     "ExtMetadata",

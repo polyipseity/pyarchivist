@@ -9,6 +9,7 @@ from logging import getLogger
 from sys import version
 from typing import Literal, TypedDict, final
 
+"""Public symbols exported by this module."""
 __all__ = (
     "AUTHORS",
     "NAME",
