@@ -27,7 +27,7 @@ Adjust the list above to match this submodule; paths below assume this folder is
 1. Create and activate a Python virtual environment (Windows example):
 
     ```powershell
-    python -m venv .venv
+    uv venv
     .\.venv\Scripts\Activate.ps1
     ```
 
@@ -78,7 +78,7 @@ Adjust the list above to match this submodule; paths below assume this folder is
 
     ```powershell
     # create a temporary dest and index, then run a sample
-    python -m pyarchivist Wikimedia_Commons -d .\tmp_dest -i .\tmp_index.md "File:Example.jpg"
+    uv run -m pyarchivist Wikimedia_Commons -d .\tmp_dest -i .\tmp_index.md "File:Example.jpg"
     ```
 
 - Index format: entries are Markdown lines of the shape `- [<filename>](<url-escaped-filename>): <credit>` — the repository uses `_INDEX_FORMAT_PATTERN` in `src/pyarchivist/Wikimedia_Commons/main.py` to parse and update index files.
@@ -322,7 +322,7 @@ def _internal() -> None:
 1. Create & activate a venv (Windows example):
 
     ```powershell
-    python -m venv .venv
+    uv venv
     .\.venv\Scripts\Activate.ps1
     ```
 
