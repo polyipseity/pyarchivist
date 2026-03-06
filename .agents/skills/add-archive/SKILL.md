@@ -18,7 +18,7 @@ Provide a reproducible, auditable workflow for adding new content to `archives/`
 
 ## Preconditions
 
-- Development environment set up (see `.github/instructions/agent-workflows.instructions.md`).
+- Development environment set up (see `.agents/instructions/agent-workflows.instructions.md`).
 - `uv` dev extras installed and pre-commit hooks configured (`prek install`).
 
 ## Steps

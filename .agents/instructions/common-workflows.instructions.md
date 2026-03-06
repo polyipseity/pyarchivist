@@ -25,7 +25,7 @@ Formatting & linting:
     uv run ruff format
     ```
 
-- Agents: see `.github/instructions/agent-workflows.instructions.md` for the runnable, minimal pre-PR checklist and CLI smoke tests (it contains examples and test pointers for the `Wikimedia_Commons` flow).
+- Agents: see `.agents/instructions/agent-workflows.instructions.md` for the runnable, minimal pre-PR checklist and CLI smoke tests (it contains examples and test pointers for the `Wikimedia_Commons` flow).
 
 Testing:
 

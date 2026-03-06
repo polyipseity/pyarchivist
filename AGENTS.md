@@ -91,7 +91,7 @@ Adjust the list above to match this submodule; paths below assume this folder is
 
 - Tests & formatting: use `uv` wrappers for reproducible runs: `uv sync --all-extras --dev`, `uv run pytest`, `uv run ruff check --fix .`, and `prek run --all-files` for pre-commit hooks.
 
-- Files to read first (in order): `pyproject.toml`, `src/pyarchivist/meta.py`, `src/pyarchivist/Wikimedia_Commons/main.py`, `.github/instructions/*`, `tests/`.
+- Files to read first (in order): `pyproject.toml`, `src/pyarchivist/meta.py`, `src/pyarchivist/Wikimedia_Commons/main.py`, `.agents/instructions/*`, `tests/`.
 
 ## Agent Code Conventions
 
@@ -219,7 +219,7 @@ Notes:
 
 ## Documentation Structure 🔎
 
-Core instructions (add under `.github/instructions/`):
+Core instructions (add under `.agents/instructions/`):
 
 - `architecture.instructions.md` — Overall repository & archive layout and important invariants.
 - `archive-format.instructions.md` — Expected layout, naming, and metadata for archives and `index.md` files.
@@ -232,7 +232,7 @@ Core instructions (add under `.github/instructions/`):
 
 If you add additional instruction files, reference them here and add brief summaries.
 
-Additional canonical instruction files in this repository (see `.github/instructions/`):
+Additional canonical instruction files in this repository (see `.agents/instructions/`):
 
 - `formatting.instructions.md` — Ruff configuration, `prek` integration, and editor guidance.
 - `testing.instructions.md` — Test structure, async testing rules, running pytest locally, and CI expectations.
@@ -242,7 +242,7 @@ Link these documents from `AGENTS.md` when you add or update them so agents and 
 
 ## Agent Skills (samples)
 
-Add skill folders under `.github/skills/` (each skill gets a `SKILL.md`):
+Add skill folders under `.agents/skills/` (each skill gets a `SKILL.md`):
 
 - `add-archive/` — Add or update an archive and update indexes.
 - `validate-archives/` — Run validation and consistency checks across the `archives/` tree.

@@ -61,7 +61,7 @@ Docstrings: Ensure that modules and exported public symbols are documented. The 
 
 - Build reproducibly: `uv build --locked` (requires `uv_build` present and pinned in `[build-system].requires`).
 - Validate by installing the wheel in a fresh venv and importing the library to check `pyarchivist.meta.VERSION` (for example: ``python -c "import pyarchivist.meta as m; print(m.VERSION)"``).
-- See `.github/skills/validate-builds/SKILL.md` for a full programmable checklist for build validation.
+- See `.agents/skills/validate-builds/SKILL.md` for a full programmable checklist for build validation.
 
 ## Release steps (agent-friendly summary)
 
