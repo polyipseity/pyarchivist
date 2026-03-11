@@ -5,4 +5,5 @@ This package intentionally avoids re-exporting module internals from
 `pyarchivist.meta` (for example: ``from pyarchivist.meta import VERSION``).
 """
 
+"""Public API exports (none)."""
 __all__ = ()
