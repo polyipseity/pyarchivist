@@ -8,6 +8,7 @@ Covers:
 import argparse
 import re
 import string
+import sys
 from argparse import ArgumentParser, _SubParsersAction, _VersionAction
 from os import PathLike, fspath
 from typing import TYPE_CHECKING, Any, cast
@@ -209,7 +210,17 @@ def test_subparser_name_sanitized_and_description_present() -> None:
 def test_parser_requires_subcommand_raises_argument_error() -> None:
     """Verify calling the top-level parser without a subcommand raises ArgumentError."""
     p = pkg_main.parser()
-    # parser was created with exit_on_error=False so argparse raises
-    # ArgumentError rather than calling sys.exit()
-    with pytest.raises(argparse.ArgumentError):
+
+    # On Python <3.13 argparse may still call sys.exit() even when
+    # `exit_on_error=False` (argparse bug); accept either exception.
+    expected_exc = (
+        (
+            argparse.ArgumentError,
+            SystemExit,
+        )
+        if sys.version_info < (3, 13)
+        else (argparse.ArgumentError,)
+    )
+
+    with pytest.raises(expected_exc):
         p.parse_args([])
