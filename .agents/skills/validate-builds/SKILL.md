@@ -102,7 +102,3 @@ python -c "import pyarchivist.meta as m; print(m.VERSION)"
 - run: python -m pip install --no-deps dist/*.whl
 - run: python -c "import pyarchivist.meta as m; assert m.VERSION == '$(cat pyproject.toml | grep version | ... )'"
 ```
-
-## Optional: validation script
-
-If you want, I can also add a small validation script (`scripts/validate_build.py`) that implements the automated checklist and returns an exit code and JSON report for agents to consume.
