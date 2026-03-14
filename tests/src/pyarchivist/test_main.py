@@ -206,7 +206,7 @@ def test_subparser_name_sanitized_and_description_present() -> None:
     assert "archive data from Wikimedia Commons" in (sp.description or "")
 
 
-def test_parser_requires_subcommand_raises_system_exit() -> None:
+def test_parser_requires_subcommand_raises_argument_error() -> None:
     """Verify calling the top-level parser without a subcommand raises ArgumentError."""
     p = pkg_main.parser()
     # parser was created with exit_on_error=False so argparse raises
