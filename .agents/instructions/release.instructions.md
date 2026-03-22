@@ -43,6 +43,13 @@ git push origin --tags
 ```powershell
 # Build with uv: uses bundled uv_build if compatible
 uv build --locked
+# Publish to PyPI through uv (wraps twine and handles lockfile environment)
+uv publish --locked
+```
+
+### Alternative direct twine fallback
+
+```powershell
 uv run --locked twine upload dist/*
 ```
 

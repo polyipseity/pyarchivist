@@ -174,11 +174,13 @@ Notes:
     uv build --locked
     ```
 
-- To publish to PyPI, use `twine` and keep credentials out of the repo (use CI secrets):
+- To publish to PyPI, prefer `uv publish` (keeps lockfile context and credential handling consistent). If needed, fallback to `twine`.
 
     ```powershell
-    # Build artifacts with `uv build --locked` then upload with twine via uv
+    # Build artifacts with uv and publish via uv publish
     uv build --locked
+    uv publish --locked
+    # Fallback direct twine command (if uv publish is unavailable)
     uv run --locked twine upload dist/*
     ```
 
