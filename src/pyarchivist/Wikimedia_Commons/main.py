@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import IntFlag, auto, unique
 from functools import wraps
 from itertools import chain
-from re import MULTILINE, compile
+from re import MULTILINE, compile, sub
 from sys import exit
 from typing import ClassVar, Protocol, TypeVar, final
 from urllib.parse import quote, unquote
@@ -185,6 +185,11 @@ def _credit_formatter(page: Page):
     # entirely-tagged authors (e.g. "<b> </b>") fall back to the default.
     if not author.replace("_", "").strip():
         author = ""
+
+    # Strip literal HTML tags from the text (fallback for malformed input like
+    # "A<>>" so the normalization path remains predictable).
+    author = sub(r"<[^>]*>", "", author).strip()
+
     if "Unknown author".casefold() in author.casefold():
         author = ""
 
