@@ -387,7 +387,7 @@ def test_index_formatter_handles_various_filenames(
     out = commons_main._index_formatter(raw, "credit")
 
     # label is the human-readable portion between [ and ]
-    m = re.search(r"^- \[(.*?)]\((.*?)\): ", out)
+    m = re.search(r"^- \[((?:\\.|[^\]])*?)\]\((.*?)\): ", out)
     assert m is not None
     label, link = m.groups()
 
@@ -430,7 +430,7 @@ def test_index_formatter_handles_various_filenames(
 def test_index_formatter_property(fname: str) -> None:
     """Property-based check ensuring `_index_formatter` escapes and quotes."""
     out = commons_main._index_formatter(fname, "credit")
-    m = re.search(r"^- \[(.*?)]\((.*?)\): ", out)
+    m = re.search(r"^- \[((?:\\.|[^\]])*?)\]\((.*?)\): ", out)
     assert m is not None
     label, link = m.groups()
 
