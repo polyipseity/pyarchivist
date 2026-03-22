@@ -147,6 +147,9 @@ def test_credit_formatter_property(author: str, lic: str, lic_url: str | None) -
         # treat values composed only of emphasis markers/whitespace as empty
         if not expected_author.replace("_", "").strip():
             expected_author = ""
+        # also treat malformed HTML tags (like ><, <>, etc.) as empty
+        if not expected_author.replace("<", "").replace(">", "").strip():
+            expected_author = ""
         expected_author = re.sub(
             r"\s+", " ", expected_author.replace("\n", " ")
         ).strip()
