@@ -8,7 +8,6 @@ import json
 import re
 import string
 from argparse import _VersionAction
-from asyncio import TimeoutError
 from collections.abc import AsyncIterator
 from os import PathLike, fspath
 from urllib.parse import quote
