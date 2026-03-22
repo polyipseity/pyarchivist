@@ -11,6 +11,9 @@ import tomllib
 import pytest
 from anyio import Path
 
+import pyarchivist
+from pyarchivist.meta import VERSION as META_VERSION
+
 """Public symbols exported by this module (none)."""
 __all__ = ()
 
@@ -44,3 +47,10 @@ async def test_pyproject_and_init_version_match():
     assert py_version == meta_version, (
         f"Version mismatch: pyproject.toml has {py_version!r} but src/pyarchivist/meta.py has {meta_version!r}"
     )
+
+
+def test_package_dunder_version_matches_meta():
+    """Ensure public pyarchivist.__version__ matches pyarchivist.meta.VERSION."""
+
+    assert hasattr(pyarchivist, "__version__"), "pyarchivist.__version__ is missing"
+    assert pyarchivist.__version__ == META_VERSION
