@@ -238,7 +238,7 @@ When creating or updating a pyarchivist `__main__.py`:
 - [ ] Use appropriate exit codes (0, 1, 2, 3)
 - [ ] For network operations, use `AsyncClient` (httpx) inside `main()`
 - [ ] Test by importing `main()` directly in pytest with `@pytest.mark.anyio`
-- [ ] Run `pyright`, `ruff check`, and `pytest` before committing
+- [ ] Run `ty check`, `ruff check`, and `pytest` before committing
 
 ## Integration with Parent Convention
 

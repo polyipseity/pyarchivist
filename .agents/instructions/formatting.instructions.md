@@ -21,11 +21,11 @@ uv run ruff check --fix
 uv run ruff format
 ```
 
-- Run static type checks (pyright/Pylance): ensure `pyrightconfig.json` uses `typeCheckingMode: "strict"` for CI parity.
+- Run static type checks with ty: ensure `[tool.ty.rules] all = "error"` for CI parity.
 
 ## Editor integration
 
-- Use the editor's Ruff/pyright integration where available. Keep the editor settings consistent with `.editorconfig` and `pyrightconfig.json`.
+- Use the editor's Ruff/ty integration where available. Keep the editor settings consistent with `.editorconfig` and `pyproject.toml`.
 
 ## Pre-commit-style checks (prek)
 

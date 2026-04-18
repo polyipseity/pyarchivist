@@ -288,7 +288,7 @@ async def main(args: Args):
                 if error:
                     ec |= ExitCode.QUERY_ERROR_PARTIAL
                 # ``id`` is a builtin, so rename to ``page_id`` for clarity and
-                # to give mypy/pyright an explicit variable name.
+                # to keep static type checkers happy with an explicit variable name.
                 pages = tuple(
                     {
                         page_id: page for page_id, page in chain.from_iterable(queries)
