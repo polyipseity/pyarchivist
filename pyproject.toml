@@ -8,7 +8,7 @@ name = "pyarchivist"
 version = "3.1.0"
 requires-python = ">=3.12.0"
 description = "Archive things from the Internet."
-license = {file = "LICENSE.txt"}
+license = { file = "LICENSE.txt" }
 readme = "README.md"
 dependencies = [
   "aiohttp>=3.8.4",
@@ -21,29 +21,27 @@ dependencies = [
   "yarl>=1.9.2",
 ]
 
-authors = [
-    {name = "William So", email = "polyipseity@gmail.com"},
-]
+authors = [{ name = "William So", email = "polyipseity@gmail.com" }]
 keywords = []
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
-    "Environment :: Console",
-    "Framework :: AsyncIO",
-    "Intended Audience :: Other Audience",
-    "License :: OSI Approved",
-    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
-    "Natural Language :: English",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Text Processing",
-    "Topic :: Text Processing :: General",
-    "Topic :: Text Processing :: Markup",
-    "Topic :: Text Processing :: Markup :: HTML",
-    "Topic :: Text Processing :: Markup :: Markdown",
-    "Topic :: Utilities",
-    "Typing :: Typed",
+  "Development Status :: 5 - Production/Stable",
+  "Environment :: Console",
+  "Framework :: AsyncIO",
+  "Intended Audience :: Other Audience",
+  "License :: OSI Approved",
+  "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+  "Natural Language :: English",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Text Processing",
+  "Topic :: Text Processing :: General",
+  "Topic :: Text Processing :: Markup",
+  "Topic :: Text Processing :: Markup :: HTML",
+  "Topic :: Text Processing :: Markup :: Markdown",
+  "Topic :: Utilities",
+  "Typing :: Typed",
 ]
 
 [project.scripts]
@@ -80,11 +78,14 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
-addopts = ["--cov=./", "--cov-report=term-missing", "--dist=loadscope", "-n=auto", "--strict-markers"]
-testpaths = [
-  ".agents/skills/**/tests_*",
-  "tests",
+addopts = [
+  "--cov=./",
+  "--cov-report=term-missing",
+  "--dist=loadscope",
+  "-n=auto",
+  "--strict-markers",
 ]
+testpaths = [".agents/skills/**/tests_*", "tests"]
 python_files = "test_*.py"
 
 [tool.ruff]
@@ -98,9 +99,10 @@ extend-select = ["I", "PLC0415"]
 # rumdl (Markdown linter/formatter) configuration - prefer storing in pyproject
 # so tools discover it when running from subdirectories.
 [tool.rumdl]
-extends =  ".rumdl.toml" # redirect to .rumdl.toml in the same directory
+extends = ".rumdl.toml" # redirect to .rumdl.toml in the same directory
 
 [tool.uv]
+package = true
 required-version = ">=0.9.0,<0.11.0"
 
 [tool.uv.build-backend]
