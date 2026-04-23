@@ -8,11 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from pyarchivist.Wikimedia_Commons.main import _credit_formatter
-from pyarchivist.Wikimedia_Commons.models import (
-    ImageInfoEntry,
-    Page,
-    ResponseModel,
-)
+from pyarchivist.Wikimedia_Commons.models import ImageInfoEntry, Page, ResponseModel
 
 """Public symbols exported by this module (none)."""
 __all__ = ()

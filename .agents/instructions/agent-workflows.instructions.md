@@ -6,39 +6,39 @@ This short reference is for AI agents and automation that will be making changes
 
 1. Create and activate a venv (Windows):
 
-    ```powershell
-    python -m venv .venv
-    .\.venv\Scripts\Activate.ps1
-    ```
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   ```
 
 2. Install deps and dev extras (use `uv`):
 
-    ```powershell
-    uv sync --all-extras --dev
-    ```
+   ```powershell
+   uv sync --all-extras --dev
+   ```
 
 3. Install pre-commit hooks with `prek`:
 
-    ```powershell
-    prek install
-    prek run --all-files
-    ```
+   ```powershell
+   prek install
+   prek run --all-files
+   ```
 
 ## Run the checks (minimal agent pre-PR checklist)
 
 - Stage 1 (safety invariants):
-    - `uv run pytest tests/test_docstrings.py tests/test_module_exports.py`
+  - `uv run pytest tests/test_docstrings.py tests/test_module_exports.py`
 - Stage 2 (targeted changed modules):
-    - `uv run pytest <explicit test paths under tests/src/...>`
+  - `uv run pytest <explicit test paths under tests/src/...>`
 - Stage 3 (type + lint):
-    - `uv run ty check`
-    - `uv run ruff check --fix .`
-    - `uv run ruff format .`
+  - `uv run ty check`
+  - `uv run ruff check --fix .`
+  - `uv run ruff format .`
 - Stage 4 (full verification):
-    - `uv run pytest`
-    - `uv run pytest --cov=./ --cov-report=term-missing` (when coverage report is required)
+  - `uv run pytest`
+  - `uv run pytest --cov=./ --cov-report=term-missing` (when coverage report is required)
 - Stage 5 (hook parity):
-    - `prek run --all-files`
+  - `prek run --all-files`
 
 Agents should fail fast and report the first failing step with logs and commands to reproduce locally.
 
@@ -51,10 +51,10 @@ Docstrings: Ensure that modules and exported public symbols are documented. The 
 - The package exposes a CLI: `python -m pyarchivist`.
 - To run the Wikimedia Commons archive flow locally (example):
 
-    ```powershell
-    mkdir .\tmp_dest
-    python -m pyarchivist Wikimedia_Commons -d .\tmp_dest -i .\tmp_dest\index.md "File:Example.jpg"
-    ```
+  ```powershell
+  mkdir .\tmp_dest
+  python -m pyarchivist Wikimedia_Commons -d .\tmp_dest -i .\tmp_dest\index.md "File:Example.jpg"
+  ```
 
 - The index file format is parsed using `_INDEX_FORMAT_PATTERN` in `src/pyarchivist/Wikimedia_Commons/main.py`. When testing index updates, use a temp dir and assert the final `index.md` contains sorted entries matching the formatting helper `_index_formatter`.
 
@@ -63,18 +63,18 @@ Docstrings: Ensure that modules and exported public symbols are documented. The 
 - There is a dedicated test ensuring `pyproject.toml` and `src/pyarchivist/meta.py::VERSION` match: `tests/pyarchivist/test___init__.py`. If you bump version, update both places.
 - Tests use `pytest` and `pytest-asyncio` for async tests. Use `@pytest.mark.anyio` for coroutine tests.
 - Prefer the `self/ledger/tests` style for structure and rigor:
-    top-level AST invariants, plugin-backed shared helpers in `tests/utils.py`,
-    and mirrored `tests/src/**` module coverage.
+  top-level AST invariants, plugin-backed shared helpers in `tests/utils.py`,
+  and mirrored `tests/src/**` module coverage.
 - Typing guidance: prefer PEP 585 built-in generics for concrete containers (e.g. `list[str]`, `dict[str, int]`) and use `collections.abc` for abstract interfaces (e.g. `collections.abc.Sequence[str]`, `collections.abc.Mapping[str, int]`) instead of `typing.Sequence`/`typing.Mapping`.
 - Tests must define `__all__ = ()` at top-level in test modules (project rule).
 - When adding new folders for Python code (source or tests), include an `__init__.py` file so the directory is an explicit Python package. Mirror the `src/` layout under `tests/` and ensure any package-style test subfolders also include `__init__.py`.
 - For async/failure-prone flows (especially Wikimedia query/fetch/index), assert
-    explicit `ExitCode` flags and capture partial-error behavior.
+  explicit `ExitCode` flags and capture partial-error behavior.
 
 ## Build & validate
 
 - Build reproducibly: `uv build --locked` (requires `uv_build` present and pinned in `[build-system].requires`).
-- Validate by installing the wheel in a fresh venv and importing the library to check `pyarchivist.meta.VERSION` (for example: ``python -c "import pyarchivist.meta as m; print(m.VERSION)"``).
+- Validate by installing the wheel in a fresh venv and importing the library to check `pyarchivist.meta.VERSION` (for example: `python -c "import pyarchivist.meta as m; print(m.VERSION)"`).
 - See `.agents/skills/validate-builds/SKILL.md` for a full programmable checklist for build validation.
 
 ## Release steps (agent-friendly summary)

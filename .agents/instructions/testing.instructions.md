@@ -14,14 +14,14 @@ Use `self/ledger/tests` as the style and rigor reference for this repository.
 At minimum, maintain parity with these patterns:
 
 - Top-level safety tests: `tests/test_docstrings.py` and
-	`tests/test_module_exports.py` use AST-only checks for invariants.
+  `tests/test_module_exports.py` use AST-only checks for invariants.
 - `tests/conftest.py` defines AnyIO backend selection and plugin wiring.
 - Typed shared helpers belong in `tests/utils.py` and are loaded through
-	`pytest_plugins = ("tests.utils",)`.
+  `pytest_plugins = ("tests.utils",)`.
 - Mirror source layout under `tests/src/**` when practical.
 - Every test module declares `__all__ = ()`.
 - Async tests use `@pytest.mark.anyio` and include robust failure-path
-	assertions (exit flags, logged exceptions, and partial error handling).
+  assertions (exit flags, logged exceptions, and partial error handling).
 
 ## Test layout and conventions
 
@@ -31,8 +31,8 @@ At minimum, maintain parity with these patterns:
 - Test modules must define `__all__ = ()` at the top (tests do not export public symbols).
 - All tests and public code must include type annotations and module-level docstrings. Do not use `from __future__ import annotations` in tests; prefer using `typing.TYPE_CHECKING` and explicit string annotations only where necessary to avoid runtime imports.
 - Prefer adding mirrored tests for CLI entry points (`__main__.py`) so command
-	dispatch and `runnify(..., backend_options={"use_uvloop": True})` wiring is
-	explicitly verified.
+  dispatch and `runnify(..., backend_options={"use_uvloop": True})` wiring is
+  explicitly verified.
 
 Docstrings & enforcement:
 
@@ -59,7 +59,7 @@ For `src/pyarchivist/Wikimedia_Commons/main.py`, tests should include:
 - Query/fetch/index error paths and partial-error paths.
 - Exit flag assertions for `ExitCode` combinations.
 - Index formatting + parsing invariants using `_index_formatter` and
-	`_INDEX_FORMAT_PATTERN`.
+  `_INDEX_FORMAT_PATTERN`.
 - Parser `invoke` adapter behavior (`argparse.Namespace` -> `Args`).
 - Deterministic handling of duplicate inputs and batch query splitting.
 
@@ -92,7 +92,7 @@ corresponding mirrored tests under `tests/src/**/test___main__.py`.
 - When changing behaviour, add or update tests to cover the change; keep coverage stable or improved.
 - Pydantic models: when testing `BaseModel` behaviour, expect pydantic v2 idioms — models may declare `model_config = ConfigDict(...)`. Tests should assert the model's runtime behaviour (for example immutability when `frozen=True`) rather than implementation details like the exact `model_config` representation.
 - Do not weaken existing checks. Expand coverage by adding new assertions or
-	scenarios rather than relaxing invariants.
+  scenarios rather than relaxing invariants.
 
 ## Testing integration flows
 
