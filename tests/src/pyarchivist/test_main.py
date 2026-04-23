@@ -224,3 +224,39 @@ def test_parser_requires_subcommand_raises_argument_error() -> None:
 
     with pytest.raises(expected_exc):
         p.parse_args([])
+
+
+@pytest.mark.anyio
+async def test_top_level_parser_invoke_delegates_to_wikimedia_main(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: PathLike[str],
+) -> None:
+    """Parsed top-level namespace should await the Wikimedia invoke adapter."""
+    captured: dict[str, object] = {}
+
+    async def fake_main(args: commons_main.Args) -> None:
+        """Capture Args supplied by the Wikimedia parser invoke adapter."""
+        captured["args"] = args
+
+    monkeypatch.setattr(commons_main, "main", fake_main)
+
+    parser = pkg_main.parser()
+    namespace = parser.parse_args(
+        [
+            "Wikimedia_Commons",
+            "-d",
+            fspath(tmp_path),
+            "--ignore-individual-errors",
+            "File:A.jpg",
+            "File:B.jpg",
+        ]
+    )
+
+    await namespace.invoke(namespace)
+
+    assert "args" in captured
+    args = captured["args"]
+    assert isinstance(args, commons_main.Args)
+    assert args.inputs == ("File:A.jpg", "File:B.jpg")
+    assert args.ignore_individual_errors is True
+    assert isinstance(args.dest, Path)

@@ -21,13 +21,28 @@ Local development quick start:
 3. Run formatting, linters and tests before committing:
 
     ```powershell
+    # 1) Safety invariants
+    uv run pytest tests/test_docstrings.py tests/test_module_exports.py
+
+    # 2) Changed-area tests (example)
+    uv run pytest tests/src/pyarchivist/Wikimedia_Commons/test_main.py
+
+    # 3) Type + lint
+    uv run ty check
     uv run ruff check --fix .
-    prek run --all-files
+    uv run ruff format .
+
+    # 4) Full suite
     uv run pytest
+
+    # 5) Hook parity
+    prek run --all-files
     ```
 
 - Agents and contributors should prefer `prek` for pre-commit-style hooks (it can read `.pre-commit-config.yaml` or use `prek.toml`).
 - After changing `prek.toml` or on first setup, run `uv run prek install` to ensure hooks (including non-Python hooks like `commitlint`) are installed and available locally.
+- Prefer explicit test paths for incremental runs; always finish with a full
+    suite run before submitting changes.
 
 Script & CI conventions:
 
@@ -37,6 +52,9 @@ Script & CI conventions:
 - Ensure tests and ruff checks run on PRs; `AGENTS.md` lists the CI expectations.
 - The codebase is async-first; avoid importing `asyncio` directly and use AnyIO/Asyncer helpers for concurrency. When adding async functionality, add `anyio` and `asyncer` to `pyproject.toml` and update `uv.lock`.
 - Agents: see `.agents/instructions/agent-workflows.instructions.md` for a concise, runnable pre-PR checklist and smoke-test examples.
+- When adding or changing source modules, mirror the layout under `tests/src/**`
+    where practical and keep top-level safety tests (`test_docstrings.py`,
+    `test_module_exports.py`) passing.
 - Quick CLI smoke test (use a temp dir):
 
     ```powershell

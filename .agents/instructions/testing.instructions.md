@@ -5,7 +5,23 @@ description: Test structure, how to write tests, and async testing guidance.
 
 # Testing
 
-Tests use `pytest` and `pytest-asyncio` for async test support. Test configuration is provided in `pyproject.toml` under `[tool.pytest.ini_options]`.
+Tests use `pytest` with AnyIO support. Test configuration is provided in
+`pyproject.toml` under `[tool.pytest.ini_options]`.
+
+## Reference standard (mirror this style)
+
+Use `self/ledger/tests` as the style and rigor reference for this repository.
+At minimum, maintain parity with these patterns:
+
+- Top-level safety tests: `tests/test_docstrings.py` and
+	`tests/test_module_exports.py` use AST-only checks for invariants.
+- `tests/conftest.py` defines AnyIO backend selection and plugin wiring.
+- Typed shared helpers belong in `tests/utils.py` and are loaded through
+	`pytest_plugins = ("tests.utils",)`.
+- Mirror source layout under `tests/src/**` when practical.
+- Every test module declares `__all__ = ()`.
+- Async tests use `@pytest.mark.anyio` and include robust failure-path
+	assertions (exit flags, logged exceptions, and partial error handling).
 
 ## Test layout and conventions
 
@@ -14,6 +30,9 @@ Tests use `pytest` and `pytest-asyncio` for async test support. Test configurati
 - **One test file per source file** is the preferred layout. Mirror the `src/` structure under `tests/` (for example `src/module/sub.py` → `tests/module/test_sub.py`).
 - Test modules must define `__all__ = ()` at the top (tests do not export public symbols).
 - All tests and public code must include type annotations and module-level docstrings. Do not use `from __future__ import annotations` in tests; prefer using `typing.TYPE_CHECKING` and explicit string annotations only where necessary to avoid runtime imports.
+- Prefer adding mirrored tests for CLI entry points (`__main__.py`) so command
+	dispatch and `runnify(..., backend_options={"use_uvloop": True})` wiring is
+	explicitly verified.
 
 Docstrings & enforcement:
 
@@ -32,13 +51,34 @@ Enforcing `__all__`:
 - For async code use `async def` tests decorated with `@pytest.mark.anyio` and `await` coroutines in the test body; when writing helpers prefer Asyncer (`create_task_group`, `soonify`, etc.) over raw `asyncio` primitives.
 - Do not use `asyncio.run`, `anyio.run`, or similar event-loop wrappers inside tests.
 
+## Required scenario depth for core flows
+
+For `src/pyarchivist/Wikimedia_Commons/main.py`, tests should include:
+
+- Happy-path query/fetch/index updates.
+- Query/fetch/index error paths and partial-error paths.
+- Exit flag assertions for `ExitCode` combinations.
+- Index formatting + parsing invariants using `_index_formatter` and
+	`_INDEX_FORMAT_PATTERN`.
+- Parser `invoke` adapter behavior (`argparse.Namespace` -> `Args`).
+- Deterministic handling of duplicate inputs and batch query splitting.
+
 ## Running tests locally
 
 ```powershell
+uv run pytest tests/test_docstrings.py tests/test_module_exports.py
+
+# module-focused run (example)
+uv run pytest tests/src/pyarchivist/Wikimedia_Commons/test_main.py
+
+# full suite
 uv run pytest
 # With coverage
 uv run pytest --cov=./ --cov-report=term-missing
 ```
+
+If a change touches parser wiring or entry points, include targeted runs for the
+corresponding mirrored tests under `tests/src/**/test___main__.py`.
 
 ## CI expectations
 
@@ -51,6 +91,8 @@ uv run pytest --cov=./ --cov-report=term-missing
 - Use fixtures for shared setup. Keep fixture scope appropriate (function or module) for isolation and speed.
 - When changing behaviour, add or update tests to cover the change; keep coverage stable or improved.
 - Pydantic models: when testing `BaseModel` behaviour, expect pydantic v2 idioms — models may declare `model_config = ConfigDict(...)`. Tests should assert the model's runtime behaviour (for example immutability when `frozen=True`) rather than implementation details like the exact `model_config` representation.
+- Do not weaken existing checks. Expand coverage by adding new assertions or
+	scenarios rather than relaxing invariants.
 
 ## Testing integration flows
 

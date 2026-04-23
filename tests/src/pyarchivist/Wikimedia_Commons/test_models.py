@@ -4,6 +4,9 @@ Covers parsing of typical and partial MediaWiki JSON payloads and ensures
 that `_credit_formatter` handles missing/partial metadata without raising.
 """
 
+import pytest
+from pydantic import ValidationError
+
 from pyarchivist.Wikimedia_Commons.main import _credit_formatter
 from pyarchivist.Wikimedia_Commons.models import (
     ImageInfoEntry,
@@ -65,7 +68,7 @@ def _sample_response_without_metadata() -> dict[str, object]:
     }
 
 
-def test_response_model_parses_extended_metadata():
+def test_response_model_parses_extended_metadata() -> None:
     """Ensure ResponseModel parses extended metadata into expected fields."""
     raw = _sample_response_with_metadata()
     model = ResponseModel.model_validate(raw)
@@ -81,7 +84,7 @@ def test_response_model_parses_extended_metadata():
     assert ii.extmetadata.Artist.value == "Jane Doe"
 
 
-def test_response_model_handles_missing_fields_and_credit_formatter():
+def test_response_model_handles_missing_fields_and_credit_formatter() -> None:
     """Verify model handles missing extmetadata and `_credit_formatter` falls back."""
     raw = _sample_response_without_metadata()
     model = ResponseModel.model_validate(raw)
@@ -97,3 +100,25 @@ def test_response_model_handles_missing_fields_and_credit_formatter():
     credit = _credit_formatter(page)
     assert "See page for author" in credit
     assert "See page for license" in credit
+
+
+def test_response_model_rejects_missing_query_key() -> None:
+    """Validate that malformed payloads without ``query`` are rejected."""
+    with pytest.raises(ValidationError):
+        ResponseModel.model_validate({})
+
+
+def test_page_imageinfo_is_optional_in_api_response() -> None:
+    """`Page.imageinfo` should parse as ``None`` when omitted by the API."""
+    model = ResponseModel.model_validate(
+        {
+            "query": {
+                "pages": {
+                    "3": {
+                        "title": "File:NoImageInfo.jpg",
+                    }
+                }
+            }
+        }
+    )
+    assert model.query.pages["3"].imageinfo is None

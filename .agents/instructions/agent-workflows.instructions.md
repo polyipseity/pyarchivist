@@ -26,10 +26,19 @@ This short reference is for AI agents and automation that will be making changes
 
 ## Run the checks (minimal agent pre-PR checklist)
 
-- `uv run ruff check --fix .` (format & lint)
-- `uv run pytest` (run tests)
-- `uv run pytest --cov=./ --cov-report=term-missing` (if coverage needed)
-- `prek run --all-files` (pre-commit local checks including commitlint)
+- Stage 1 (safety invariants):
+    - `uv run pytest tests/test_docstrings.py tests/test_module_exports.py`
+- Stage 2 (targeted changed modules):
+    - `uv run pytest <explicit test paths under tests/src/...>`
+- Stage 3 (type + lint):
+    - `uv run ty check`
+    - `uv run ruff check --fix .`
+    - `uv run ruff format .`
+- Stage 4 (full verification):
+    - `uv run pytest`
+    - `uv run pytest --cov=./ --cov-report=term-missing` (when coverage report is required)
+- Stage 5 (hook parity):
+    - `prek run --all-files`
 
 Agents should fail fast and report the first failing step with logs and commands to reproduce locally.
 
@@ -53,9 +62,14 @@ Docstrings: Ensure that modules and exported public symbols are documented. The 
 
 - There is a dedicated test ensuring `pyproject.toml` and `src/pyarchivist/meta.py::VERSION` match: `tests/pyarchivist/test___init__.py`. If you bump version, update both places.
 - Tests use `pytest` and `pytest-asyncio` for async tests. Use `@pytest.mark.anyio` for coroutine tests.
+- Prefer the `self/ledger/tests` style for structure and rigor:
+    top-level AST invariants, plugin-backed shared helpers in `tests/utils.py`,
+    and mirrored `tests/src/**` module coverage.
 - Typing guidance: prefer PEP 585 built-in generics for concrete containers (e.g. `list[str]`, `dict[str, int]`) and use `collections.abc` for abstract interfaces (e.g. `collections.abc.Sequence[str]`, `collections.abc.Mapping[str, int]`) instead of `typing.Sequence`/`typing.Mapping`.
 - Tests must define `__all__ = ()` at top-level in test modules (project rule).
 - When adding new folders for Python code (source or tests), include an `__init__.py` file so the directory is an explicit Python package. Mirror the `src/` layout under `tests/` and ensure any package-style test subfolders also include `__init__.py`.
+- For async/failure-prone flows (especially Wikimedia query/fetch/index), assert
+    explicit `ExitCode` flags and capture partial-error behavior.
 
 ## Build & validate
 

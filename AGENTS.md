@@ -71,6 +71,19 @@ Adjust the list above to match this submodule; paths below assume this folder is
 - **Ask instead of guessing.** If behaviour or intent is ambiguous, request clarification rather than making assumptions.
 - **Use the Todo List Tool for multi-step tasks.** Plan steps, mark one step `in-progress`, complete it, and continue; keep the todo list updated.
 - **Document everything.** Ensure modules and exported public symbols include clear module-level and object docstrings. Run `uv run pytest tests/test_docstrings.py` as part of your checks to validate docstring compliance.
+- **Mirror ledger-style test rigor.** Use `self/ledger/tests` as a structural and
+    quality reference: AST invariant tests, plugin-backed shared helpers in
+    `tests/utils.py`, mirrored `tests/src/**` layout, and robust async failure-path
+    assertions.
+
+Validation order for non-trivial changes:
+
+1. `uv run pytest tests/test_docstrings.py tests/test_module_exports.py`
+2. `uv run pytest <changed test paths>`
+3. `uv run ty check`
+4. `uv run ruff check --fix . ; uv run ruff format .`
+5. `uv run pytest`
+6. `prek run --all-files`
 
 ## Project-specific notes for agents ⚡
 
@@ -269,6 +282,13 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
   - For packages (`__init__.py`), avoid re-exporting module internals. Prefer placing package metadata and configuration in dedicated modules (for example `pyarchivist.meta`) and import them directly using `from pyarchivist.meta import VERSION`. If the package intentionally has no public surface, use `__all__ = ()`.
   - Add a module-level test that enforces `__all__` presence and that it is a tuple. The repository contains a test that parses source files' AST and asserts `__all__` is declared.
   - When you add public symbols, update `__all__`, add tests for the new API, and update the package docs and `README.md` as appropriate.
+
+- Testing depth expectations:
+    - Do not weaken existing checks; add scenarios instead.
+    - For query/fetch/index pipelines, assert both success and failure paths,
+        including partial-error `ExitCode` flag combinations.
+    - Add mirrored entrypoint tests for `__main__.py` modules to verify `runnify`
+        wiring and argument dispatch behavior.
 
 - Examples:
 

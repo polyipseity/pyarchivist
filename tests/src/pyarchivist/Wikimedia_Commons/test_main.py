@@ -10,6 +10,7 @@ import string
 from argparse import _VersionAction
 from collections.abc import AsyncIterator
 from os import PathLike, fspath
+from typing import Any, cast
 from urllib.parse import quote
 
 import pytest
@@ -1371,3 +1372,133 @@ async def test_indexing_merges_percent_encoded_existing_entry(
     assert "a]b" in last
     # ensure Other entry still present
     assert "Other credit" in last
+
+
+@pytest.mark.anyio
+async def test_parser_invoke_builds_args_and_calls_main(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: PathLike[str],
+) -> None:
+    """The parser ``invoke`` adapter should construct ``Args`` and await ``main``."""
+    captured: dict[str, object] = {}
+
+    async def fake_main(args: Args) -> None:
+        """Capture the Args instance passed by the parser invoke adapter."""
+        captured["args"] = args
+
+    monkeypatch.setattr(commons_main, "main", fake_main)
+
+    tmp_root = Path(tmp_path)
+    parser = commons_main.parser()
+    namespace = parser.parse_args(
+        [
+            "-d",
+            fspath(tmp_root),
+            "-i",
+            fspath(tmp_root / "index.md"),
+            "--ignore-individual-errors",
+            "File:One.jpg",
+            "File:Two.jpg",
+        ]
+    )
+
+    await namespace.invoke(namespace)
+
+    assert "args" in captured
+    args = captured["args"]
+    assert isinstance(args, Args)
+    assert args.inputs == ("File:One.jpg", "File:Two.jpg")
+    assert args.ignore_individual_errors is True
+    assert args.dest == tmp_root
+    assert args.index == tmp_root / "index.md"
+
+
+@pytest.mark.anyio
+async def test_main_index_error_sets_index_and_generic_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: PathLike[str],
+) -> None:
+    """Index write failures should set INDEX_ERROR and GENERIC_ERROR flags."""
+    fake_sess = _FakeClientSession()
+    fake_sess._api_json = {
+        "query": {
+            "pages": {
+                "1": {
+                    "title": "File:IndexFail.jpg",
+                    "imageinfo": [
+                        {
+                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:IndexFail.jpg",
+                            "url": "https://upload.wikimedia.org/indexfail.jpg",
+                            "extmetadata": {},
+                        }
+                    ],
+                }
+            }
+        }
+    }
+    fake_sess._file_bytes = b"ok"
+
+    def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return the fake client session used by this test."""
+        return fake_sess
+
+    captured: dict[str, object] = {}
+
+    def _fake_exit(code: int | object) -> None:
+        """Capture emitted exit code for assertions."""
+        captured["code"] = code
+
+    real_open_any = cast(Any, Path.open)
+    index_path = Path(tmp_path) / "index.md"
+
+    async def failing_open(
+        path: Path,
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        """Raise on the index path while delegating all other ``Path.open`` calls."""
+        if path == index_path:
+            raise OSError("index open failure")
+        return await real_open_any(path, *args, **kwargs)
+
+    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
+    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+    monkeypatch.setattr(Path, "open", failing_open)
+
+    args = Args(
+        inputs=("File:IndexFail.jpg",),
+        dest=Path(tmp_path),
+        index=index_path,
+        ignore_individual_errors=False,
+    )
+
+    await commons_main.main(args)
+
+    downloaded = Path(tmp_path) / "IndexFail.jpg"
+    assert await downloaded.exists()
+    assert await downloaded.read_bytes() == b"ok"
+
+    assert "code" in captured
+    code = captured["code"]
+    assert isinstance(code, commons_main.ExitCode)
+    assert bool(code & commons_main.ExitCode.INDEX_ERROR)
+    assert bool(code & commons_main.ExitCode.GENERIC_ERROR)
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "simple.jpg",
+        "a]b",
+        r"folder\\item].png",
+        "comma,name.jpg",
+    ],
+)
+def test_index_formatter_output_matches_index_pattern(filename: str) -> None:
+    """Formatted index lines should round-trip through `_INDEX_FORMAT_PATTERN`."""
+    line = commons_main._index_formatter(filename, "credit")
+    match = commons_main._INDEX_FORMAT_PATTERN.match(line)
+
+    assert match is not None
+    assert match.group(0) == line
+    assert commons_main.unquote(match.group(2)) == filename
