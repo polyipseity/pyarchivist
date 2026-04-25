@@ -609,9 +609,13 @@ dependencies = [
     { name = "asyncer" },
     { name = "html2text" },
     { name = "pydantic" },
+    { name = "yarl" },
+]
+
+[package.optional-dependencies]
+uvloop = [
     { name = "uvloop", marker = "sys_platform != 'win32'" },
     { name = "winloop", marker = "sys_platform == 'win32'" },
-    { name = "yarl" },
 ]
 
 [package.dev-dependencies]
@@ -625,6 +629,9 @@ dev = [
     { name = "rumdl" },
     { name = "ty" },
 ]
+uvloop = [
+    { name = "pyarchivist", extra = ["uvloop"] },
+]
 
 [package.metadata]
 requires-dist = [
@@ -633,10 +640,11 @@ requires-dist = [
     { name = "asyncer", specifier = ">=0.0.17" },
     { name = "html2text", specifier = ">=2020.1.16" },
     { name = "pydantic", specifier = ">=2.12.0" },
-    { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.22.0" },
-    { name = "winloop", marker = "sys_platform == 'win32'", specifier = ">=0.5.0" },
+    { name = "uvloop", marker = "sys_platform != 'win32' and extra == 'uvloop'", specifier = ">=0.22.0" },
+    { name = "winloop", marker = "sys_platform == 'win32' and extra == 'uvloop'", specifier = ">=0.5.0" },
     { name = "yarl", specifier = ">=1.9.2" },
 ]
+provides-extras = ["uvloop"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -649,6 +657,7 @@ dev = [
     { name = "rumdl", specifier = ">=0.1.20" },
     { name = "ty", specifier = ">=0.0.31" },
 ]
+uvloop = [{ name = "pyarchivist", extras = ["uvloop"] }]
 
 [[package]]
 name = "pydantic"
