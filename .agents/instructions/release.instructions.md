@@ -14,7 +14,7 @@ This document describes a minimal, reproducible release process for `pyarchivist
 
 ## Release checklist
 
-1. Update `src/pyarchivist/meta.py::VERSION` with the new version string (for example, `1.2.3`). After updating the version and before tagging, run `uv sync --all-extras --dev` to refresh `uv.lock` and commit the lockfile (either as part of the release commit or as a separate follow-up commit).
+1. Update `src/pyarchivist/meta.py::VERSION` with the new version string (for example, `1.2.3`). After updating the version and before tagging, run `uv sync` to refresh `uv.lock` and commit the lockfile (either as part of the release commit or as a separate follow-up commit).
 
    - Important: ensure `pyproject.toml` [project].version matches `src/pyarchivist/meta.py::VERSION`. The repository contains a unit test (`tests/pyarchivist/test___init__.py`) that enforces this; run `uv run pytest` to verify the version sync before tagging.
 

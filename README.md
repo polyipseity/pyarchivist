@@ -8,23 +8,23 @@ Follow these steps to set up a reproducible development environment using `uv` (
 
 1. Create and activate a virtual environment (Windows example):
 
-    ```powershell
-    python -m venv .venv
-    .\.venv\Scripts\Activate.ps1
-    ```
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   ```
 
 2. Install project dependencies and development extras:
 
-    ```powershell
-    uv sync --all-extras --dev
-    ```
+   ```powershell
+   uv sync
+   ```
 
 3. Run tests and formatting (use `uv` wrappers for reproducibility):
 
-    ```powershell
-    uv run pytest
-    uv run ruff check --fix .
-    ```
+   ```powershell
+   uv run pytest
+   uv run ruff check --fix .
+   ```
 
 Notes:
 

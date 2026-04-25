@@ -19,51 +19,51 @@ Adjust the list above to match this submodule; paths below assume this folder is
 ## Dependencies
 
 - Declare project dependencies in `pyproject.toml` (this is the authoritative source).
-- Use `uv` (astral-sh) for dependency management and prefer `uv sync --all-extras --dev` (use `--locked --all-extras --dev` in CI to enforce the lockfile) over using `pip install` directly.
+- Use `uv` (astral-sh) for dependency management and prefer `uv sync` (use `--locked` in CI to enforce the lockfile) over using `pip install` directly.
 - If `requirements.txt` exists in this repository it is a compatibility/delegation helper and should not be treated as the authoritative dependency list — it delegates to `setup.py`/packaging and does not itself store the canonical dependencies.
 
 ## Quick start (development)
 
 1. Create and activate a Python virtual environment (Windows example):
 
-    ```powershell
-    uv venv
-    .\.venv\Scripts\Activate.ps1
-    ```
+   ```powershell
+   uv venv
+   .\.venv\Scripts\Activate.ps1
+   ```
 
 2. Install development dependencies (recommended):
 
-    ```powershell
-    # Using PEP 722 dependency groups (preferred)
-    # Add dev extras to `pyproject.toml` (under [dependency-groups].dev), then install:
-    uv sync --all-extras --dev
+   ```powershell
+   # Using PEP 722 dependency groups (preferred)
+   # Add dev extras to `pyproject.toml` (under [dependency-groups].dev), then install:
+   uv sync
 
-    # or, if using older tooling, install the editable package with extras
-    # (not recommended; prefer `uv sync --all-extras --dev`)
-    ```
+   # or, if using older tooling, install the editable package with extras
+   # (not recommended; prefer `uv sync`)
+   ```
 
 3. Run tests (if tests exist):
 
-    ```powershell
-    # Add pytest to dev extras or install via uv, then run:
-    uv run pytest
-    ```
+   ```powershell
+   # Add pytest to dev extras or install via uv, then run:
+   uv run pytest
+   ```
 
 ## Formatting & linting
 
 - Recommended tools: `ruff`, `flake8`, `mypy` (apply if configuration files are present). For Markdown, use `rumdl` (fast Rust-based linter & formatter).
 - To run formatters locally:
 
-    ```powershell
-    # Ensure ruff and rumdl are in dev extras and run via uv for reproducibility
-    uv run ruff check --fix
-    uv run ruff format
+  ```powershell
+  # Ensure ruff and rumdl are in dev extras and run via uv for reproducibility
+  uv run ruff check --fix
+  uv run ruff format
 
-    # Markdown lint & format with rumdl
-    uv run --locked rumdl check
-    uv run --locked rumdl check --fix
-    uv run --locked rumdl fmt
-    ```
+  # Markdown lint & format with rumdl
+  uv run --locked rumdl check
+  uv run --locked rumdl check --fix
+  uv run --locked rumdl fmt
+  ```
 
 ## Agent workflow reminders
 
@@ -72,9 +72,9 @@ Adjust the list above to match this submodule; paths below assume this folder is
 - **Use the Todo List Tool for multi-step tasks.** Plan steps, mark one step `in-progress`, complete it, and continue; keep the todo list updated.
 - **Document everything.** Ensure modules and exported public symbols include clear module-level and object docstrings. Run `uv run pytest tests/test_docstrings.py` as part of your checks to validate docstring compliance.
 - **Mirror ledger-style test rigor.** Use `self/ledger/tests` as a structural and
-    quality reference: AST invariant tests, plugin-backed shared helpers in
-    `tests/utils.py`, mirrored `tests/src/**` layout, and robust async failure-path
-    assertions.
+  quality reference: AST invariant tests, plugin-backed shared helpers in
+  `tests/utils.py`, mirrored `tests/src/**` layout, and robust async failure-path
+  assertions.
 
 Validation order for non-trivial changes:
 
@@ -89,10 +89,10 @@ Validation order for non-trivial changes:
 
 - Quick CLI example (exercise Wikimedia_Commons flow):
 
-    ```powershell
-    # create a temporary dest and index, then run a sample
-    uv run -m pyarchivist Wikimedia_Commons -d .\tmp_dest -i .\tmp_index.md "File:Example.jpg"
-    ```
+  ```powershell
+  # create a temporary dest and index, then run a sample
+  uv run -m pyarchivist Wikimedia_Commons -d .\tmp_dest -i .\tmp_index.md "File:Example.jpg"
+  ```
 
 - Index format: entries are Markdown lines of the shape `- [<filename>](<url-escaped-filename>): <credit>` — the repository uses `_INDEX_FORMAT_PATTERN` in `src/pyarchivist/Wikimedia_Commons/main.py` to parse and update index files.
 
@@ -102,7 +102,7 @@ Validation order for non-trivial changes:
 
 - Version & release single source-of-truth: bump `src/pyarchivist/meta.py::VERSION` and keep `pyproject.toml` in sync (there is a test `tests/pyarchivist/test___init__.py` that asserts this). Release commits must be GPG-signed and tag with `vX.Y.Z` as described below.
 
-- Tests & formatting: use `uv` wrappers for reproducible runs: `uv sync --all-extras --dev`, `uv run pytest`, `uv run ruff check --fix .`, and `prek run --all-files` for pre-commit hooks.
+- Tests & formatting: use `uv` wrappers for reproducible runs: `uv sync`, `uv run pytest`, `uv run ruff check --fix .`, and `prek run --all-files` for pre-commit hooks.
 
 - Files to read first (in order): `pyproject.toml`, `src/pyarchivist/meta.py`, `src/pyarchivist/Wikimedia_Commons/main.py`, `.agents/instructions/*`, `tests/`.
 
@@ -124,7 +124,7 @@ Use `prek` to install hooks locally. `prek` can read an existing `.pre-commit-co
 
 ```powershell
 # Add `prek` to dev extras, then:
-uv sync --all-extras --dev
+uv sync
 prek install
 
 # Run all configured hooks against the repository:
@@ -141,27 +141,27 @@ prek run --all-files
 
 When publishing a new release, follow these steps and keep the release commit minimal:
 
-1. Update the version string in `src/pyarchivist/meta.py::VERSION` to the new semantic version (e.g. `1.2.3`). After changing the version (and before tagging), run `uv sync --all-extras --dev` to update `uv.lock` and commit the lockfile (either as part of the release commit or as an immediate follow-up commit). Edit only the version and lockfile in the release commit(s).
+1. Update the version string in `src/pyarchivist/meta.py::VERSION` to the new semantic version (e.g. `1.2.3`). After changing the version (and before tagging), run `uv sync` to update `uv.lock` and commit the lockfile (either as part of the release commit or as an immediate follow-up commit). Edit only the version and lockfile in the release commit(s).
 
 2. Commit the change with the commit message equal to the bare version string (no prefix). The commit must be GPG-signed.
 
-    ```powershell
-    git add pyproject.toml uv.lock src/pyarchivist/meta.py
-    git commit -S -m "1.2.3"
-    ```
+   ```powershell
+   git add pyproject.toml uv.lock src/pyarchivist/meta.py
+   git commit -S -m "1.2.3"
+   ```
 
 3. Create a signed, annotated tag with the `v` prefix matching the version:
 
-    ```powershell
-    git tag -s -a v1.2.3 -m "v1.2.3"
-    ```
+   ```powershell
+   git tag -s -a v1.2.3 -m "v1.2.3"
+   ```
 
 4. Push the commit and tags to the remote:
 
-    ```powershell
-    git push origin HEAD
-    git push origin --tags
-    ```
+   ```powershell
+   git push origin HEAD
+   git push origin --tags
+   ```
 
 Notes:
 
@@ -181,21 +181,21 @@ Notes:
 
 - To build artifacts locally:
 
-    ```powershell
-    # Use uv's native build backend (uv_build) for pure-Python packages
-    # Ensure pyproject.toml [build-system].requires = ["uv_build>=0.10.0,<0.11.0"]
-    uv build --locked
-    ```
+  ```powershell
+  # Use uv's native build backend (uv_build) for pure-Python packages
+  # Ensure pyproject.toml [build-system].requires = ["uv_build>=0.10.0,<0.11.0"]
+  uv build --locked
+  ```
 
 - To publish to PyPI, prefer `uv publish` (keeps lockfile context and credential handling consistent). If needed, fallback to `twine`.
 
-    ```powershell
-    # Build artifacts with uv and publish via uv publish
-    uv build --locked
-    uv publish --locked
-    # Fallback direct twine command (if uv publish is unavailable)
-    uv run --locked twine upload dist/*
-    ```
+  ```powershell
+  # Build artifacts with uv and publish via uv publish
+  uv build --locked
+  uv publish --locked
+  # Fallback direct twine command (if uv publish is unavailable)
+  uv run --locked twine upload dist/*
+  ```
 
 ## Security and reporting
 
@@ -209,22 +209,22 @@ Notes:
 
 - This project requires signed release commits and annotated tags. To sign commits and tags, configure your GPG key and set `user.signingkey` in git config.
 
-    Example commit verification:
+  Example commit verification:
 
-    ```powershell
-    git verify-commit HEAD
-    git verify-tag v1.2.3
-    ```
+  ```powershell
+  git verify-commit HEAD
+  git verify-tag v1.2.3
+  ```
 
 ## Using this submodule from the parent repo
 
 - When you update the submodule in the parent repository, update the submodule pointer and commit in the parent repo:
 
-    ```powershell
-    git submodule update --remote --merge
-    git add .
-    git commit -m "chore(submodules): update pyarchivist to v1.2.3"
-    ```
+  ```powershell
+  git submodule update --remote --merge
+  git add .
+  git commit -m "chore(submodules): update pyarchivist to v1.2.3"
+  ```
 
 ## Badges & metadata
 
@@ -284,11 +284,11 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
   - When you add public symbols, update `__all__`, add tests for the new API, and update the package docs and `README.md` as appropriate.
 
 - Testing depth expectations:
-    - Do not weaken existing checks; add scenarios instead.
-    - For query/fetch/index pipelines, assert both success and failure paths,
-        including partial-error `ExitCode` flag combinations.
-    - Add mirrored entrypoint tests for `__main__.py` modules to verify `runnify`
-        wiring and argument dispatch behavior.
+  - Do not weaken existing checks; add scenarios instead.
+  - For query/fetch/index pipelines, assert both success and failure paths,
+    including partial-error `ExitCode` flag combinations.
+  - Add mirrored entrypoint tests for `__main__.py` modules to verify `runnify`
+    wiring and argument dispatch behavior.
 
 - Examples:
 
@@ -314,21 +314,21 @@ def _internal() -> None:
 ## Formatting & Tooling (Ruff + UV) 🔧
 
 - We use **Ruff** as the single Python formatting/linting tool. Do not add `black` or `isort` to CI or dev-dependencies.
-- Use `uv` for Python dependency management and installs. Prefer deterministic installs with `uv sync --all-extras --dev` and use `--locked --all-extras --dev` in CI or when you need to strictly enforce the lockfile; commit `uv.lock` if present.
+- Use `uv` for Python dependency management and installs. Prefer deterministic installs with `uv sync` and use `--locked` in CI or when you need to strictly enforce the lockfile; commit `uv.lock` if present.
 - Local formatting commands:
 
-    ```powershell
-    uv run ruff check --fix
-    uv run ruff format
-    ```
+  ```powershell
+  uv run ruff check --fix
+  uv run ruff format
+  ```
 
 - Use `prek` to register quick hooks (see `.pre-commit-config.yaml` or `prek.toml`). Install via:
 
-    ```powershell
-    uv sync --all-extras --dev
-    prek install
-    prek run --all-files
-    ```
+  ```powershell
+  uv sync
+  prek install
+  prek run --all-files
+  ```
 
 ## Agent commits & release policy 🧾
 
@@ -343,24 +343,24 @@ def _internal() -> None:
 
 1. Create & activate a venv (Windows example):
 
-    ```powershell
-    uv venv
-    .\.venv\Scripts\Activate.ps1
-    ```
+   ```powershell
+   uv venv
+   .\.venv\Scripts\Activate.ps1
+   ```
 
 2. Install development extras (use `uv`):
 
-    ```powershell
-    uv sync --all-extras --dev
-    ```
+   ```powershell
+   uv sync
+   ```
 
 3. Run format & checks before committing:
 
-    ```powershell
-    uv run ruff check --fix .
-    prek run --all-files
-    uv run pytest
-    ```
+   ```powershell
+   uv run ruff check --fix .
+   prek run --all-files
+   uv run pytest
+   ```
 
 ## VS Code setup 🧭
 

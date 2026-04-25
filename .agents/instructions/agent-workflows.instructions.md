@@ -14,7 +14,7 @@ This short reference is for AI agents and automation that will be making changes
 2. Install deps and dev extras (use `uv`):
 
    ```powershell
-   uv sync --all-extras --dev
+   uv sync
    ```
 
 3. Install pre-commit hooks with `prek`:
@@ -80,7 +80,7 @@ Docstrings: Ensure that modules and exported public symbols are documented. The 
 ## Release steps (agent-friendly summary)
 
 1. Bump `src/pyarchivist/meta.py::VERSION` only.
-2. Run `uv sync --all-extras --dev` and commit `uv.lock` changes.
+2. Run `uv sync` and commit `uv.lock` changes.
 3. Commit with message equal to the raw version (e.g., `1.2.3`) and sign it with GPG (`git commit -S -m "1.2.3"`).
 4. Create a signed annotated tag: `git tag -s -a v1.2.3 -m "v1.2.3"` and push commit + tag.
 

@@ -8,7 +8,7 @@ Pre-commit-style hooks (local, using `prek`):
   then run:
 
     ```powershell
-    uv sync --all-extras --dev
+    uv sync
     prek install
     prek run --all-files
     ```

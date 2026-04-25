@@ -15,7 +15,7 @@ Local development quick start:
 2. Install development extras (use `uv`):
 
    ```powershell
-   uv sync --all-extras --dev
+   uv sync
    ```
 
 3. Run formatting, linters and tests before committing:

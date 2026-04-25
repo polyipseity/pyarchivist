@@ -34,7 +34,7 @@ uv run ruff format
 Install and run locally:
 
 ```powershell
-uv sync --all-extras --dev
+uv sync
 prek install
 prek run --all-files
 ```
@@ -53,7 +53,7 @@ prek run --all-files
 - Install & run locally (recommended via `uv` dev extras):
 
 ```powershell
-uv sync --all-extras --dev
+uv sync
 uv run --locked rumdl check
 uv run --locked rumdl check --fix
 uv run --locked rumdl fmt
