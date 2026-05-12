@@ -9,6 +9,7 @@ import re
 import string
 from argparse import _VersionAction
 from collections.abc import AsyncIterator
+from html import escape as html_escape
 from os import PathLike, fspath
 from typing import Any, cast
 from urllib.parse import quote
@@ -628,7 +629,9 @@ def test_credit_formatter_property_variants(
             r"\s+", " ", expected_author.replace("\n", " ")
         ).strip()
         if expected_author:
-            assert expected_author.split()[0] in out
+            # HTML-escape before checking, since the output has HTML-escaped values
+            expected_author_first_word = html_escape(expected_author.split()[0])
+            assert expected_author_first_word in out
         else:
             assert "See page for author" in out
 
@@ -638,7 +641,9 @@ def test_credit_formatter_property_variants(
     else:
         expected_lic = re.sub(r"\s+", " ", (lic or "").replace("\n", " ")).strip()
         if expected_lic:
-            assert expected_lic.split()[0] in out
+            # HTML-escape before checking, since the output has HTML-escaped values
+            expected_lic_first_word = html_escape(expected_lic.split()[0])
+            assert expected_lic_first_word in out
         else:
             assert "See page for license" in out
 

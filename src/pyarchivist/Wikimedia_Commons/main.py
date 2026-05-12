@@ -11,6 +11,7 @@ from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass
 from enum import IntFlag, auto, unique
 from functools import wraps
+from html import escape as html_escape
 from itertools import chain
 from re import MULTILINE, compile
 from sys import exit
@@ -20,7 +21,6 @@ from urllib.parse import quote, unquote
 from aiohttp import ClientSession, TCPConnector
 from anyio import Path
 from asyncer import SoonValue, asyncify, create_task_group
-from html2text import HTML2Text
 from yarl import URL
 
 from pyarchivist.meta import LOGGER, OPEN_TEXT_OPTIONS, USER_AGENT, VERSION
@@ -164,27 +164,17 @@ def _credit_formatter(page: Page):
 
     assert page.imageinfo is not None
 
-    htm_esc = HTML2Text()
-    htm_esc.emphasis_mark = "_"
-    htm_esc.ignore_links = True
-    htm_esc.single_line_break = True
-    htm_esc.strong_mark = "__"
-    htm_esc.ul_item_mark = "-"
-
     ii = page.imageinfo[0]
     emd = ii.extmetadata
 
     # Defensive access: pydantic fields may be None; ensure we pass `str` to
-    # html2text and call string methods only on `str`.
+    # regex operations and call string methods only on `str`.
     raw_author = ""
     if emd and emd.Artist and emd.Artist.value:
         raw_author = emd.Artist.value
-    author = htm_esc.handle(raw_author).strip()
-    # html2text may convert tags to emphasis markers (we use `_` / `__`).
-    # treat values that are only emphasis markers or whitespace as absent so
-    # entirely-tagged authors (e.g. "<b> </b>") fall back to the default.
-    if not author.replace("_", "").strip():
-        author = ""
+    # Strip HTML-like tags using simple regex pattern, then normalize whitespace
+    author = compile(r"<[^>]*>", flags=MULTILINE).sub("", raw_author)
+    author = compile(r"\s+").sub(" ", author.replace("\n", " ")).strip()
 
     if "Unknown author".casefold() in author.casefold():
         author = ""
@@ -192,8 +182,9 @@ def _credit_formatter(page: Page):
     raw_lic = ""
     if emd and emd.LicenseShortName and emd.LicenseShortName.value:
         raw_lic = emd.LicenseShortName.value
-    # treat whitespace-only values as absent
-    lic = raw_lic.strip()
+    # Strip HTML-like tags and treat whitespace-only values as absent
+    lic = compile(r"<[^>]*>", flags=MULTILINE).sub("", raw_lic)
+    lic = compile(r"\s+").sub(" ", lic.replace("\n", " ")).strip()
     if "Unknown license".casefold() in lic.casefold():
         lic = ""
 
@@ -204,12 +195,12 @@ def _credit_formatter(page: Page):
     lic_lnk = "".join(
         (
             f'<a href="{lic_url}">' if lic_url else "",
-            (lic.replace("\n", "") if lic else "See page for license"),
+            (html_escape(lic) if lic else "See page for license"),
             "</a>" if lic_url else "",
         )
     )
 
-    author = author.replace("\n", "") or "See page for author"
+    author = html_escape(author) or "See page for author"
     return (
         f'<a href="{ii.descriptionurl}">{author}</a>, {lic_lnk}, via Wikimedia Commons'
     )

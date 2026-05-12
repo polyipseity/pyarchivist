@@ -10,13 +10,13 @@ import re
 import string
 import sys
 from argparse import ArgumentParser, _SubParsersAction, _VersionAction
+from html import escape as html_escape
 from os import PathLike, fspath
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote
 
 import pytest
 from anyio import Path
-from html2text import HTML2Text
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -132,28 +132,17 @@ def test_credit_formatter_property(author: str, lic: str, lic_url: str | None) -
     if author and "unknown author" in author.casefold():
         assert "See page for author" in out
     else:
-        # normalize author the same way the implementation does: run through
-        # html2text (which may turn tags into emphasis markers), then collapse
-        # whitespace and treat emphasis-only values as absent.
-
-        _ht = HTML2Text()
-        _ht.emphasis_mark = "_"
-        _ht.ignore_links = True
-        _ht.single_line_break = True
-        _ht.strong_mark = "__"
-        _ht.ul_item_mark = "-"
-
-        expected_author = _ht.handle(author or "").strip()
-        # treat values composed only of emphasis markers/whitespace as empty
-        if not expected_author.replace("_", "").strip():
-            expected_author = ""
+        # strip HTML tags using regex (same as new implementation)
+        expected_author = re.sub(r"<[^>]*>", "", (author or ""), flags=re.DOTALL)
         expected_author = re.sub(
             r"\s+", " ", expected_author.replace("\n", " ")
         ).strip()
         if expected_author:
-            assert expected_author.split()[0] in out
+            # HTML-escape before checking, since the output has HTML-escaped values
+            expected_author_first_word = html_escape(expected_author.split()[0])
+            assert expected_author_first_word in out
         else:
-            # empty/entirely-tagged author should fall back
+            # empty/stripped-only author should fall back
             assert "See page for author" in out
 
     # license handling
@@ -162,7 +151,9 @@ def test_credit_formatter_property(author: str, lic: str, lic_url: str | None) -
     else:
         expected_lic = re.sub(r"\s+", " ", (lic or "").replace("\n", " ")).strip()
         if expected_lic:
-            assert expected_lic.split()[0] in out
+            # HTML-escape before checking, since the output has HTML-escaped values
+            expected_lic_first_word = html_escape(expected_lic.split()[0])
+            assert expected_lic_first_word in out
         else:
             assert "See page for license" in out
 
