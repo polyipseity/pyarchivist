@@ -44,7 +44,7 @@ prek run --all-files
 ### Notes (prek)
 
 - These hooks are a recommended baseline. If a particular hook is undesired, remove or configure that hook in `prek.toml`.
-- Keep hook repositories pinned (set `rev`) to an explicit release to ensure reproducible behaviour.
+- Keep hook repositories pinned (set `rev`) to an explicit commit hash to ensure reproducible behaviour.
 
 ## Markdown & other formats
 
