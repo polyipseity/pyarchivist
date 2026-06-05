@@ -59,7 +59,7 @@ hooks = [{ id = "check-dependabot" }, { id = "check-github-workflows" }]
 # rumdl auto-discovers and can import markdownlint configs via `rumdl import`.
 [[repos]]
 repo = "https://github.com/rvben/rumdl-pre-commit.git"
-rev = "59d5dafbf6b16f065b4c86cbbff836f5c4a75a71"
+rev = "0ce082c2e2357de07d1746e5971198eba4a8132c"
 hooks = [{ id = "rumdl-fmt" }]
 
 [[repos]]
