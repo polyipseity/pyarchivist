@@ -22,9 +22,9 @@ from hypothesis import strategies as st
 
 from pyarchivist import main as pkg_main
 from pyarchivist.meta import VERSION
+from pyarchivist.types import Args
 from pyarchivist.Wikimedia_Commons.main import (
     _PERCENT_ESCAPE_SAFE,
-    Args,
     _credit_formatter,
     _index_formatter,
 )

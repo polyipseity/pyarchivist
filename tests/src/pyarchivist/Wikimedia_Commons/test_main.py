@@ -20,12 +20,11 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from pyarchivist.meta import VERSION
+from pyarchivist.types import Args, ExitCode
 from pyarchivist.Wikimedia_Commons.__main__ import main, parser
 from pyarchivist.Wikimedia_Commons.main import (
     _INDEX_FORMAT_PATTERN,
     _PERCENT_ESCAPE_SAFE,
-    Args,
-    ExitCode,
     _credit_formatter,
     _handle_partial_errors,
     _index_formatter,

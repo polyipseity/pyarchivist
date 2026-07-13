@@ -16,8 +16,9 @@ from anyio import Path
 from asyncer import runnify
 
 from pyarchivist.meta import VERSION
+from pyarchivist.types import ArchiveResult, Args, ExitCode
 
-from .main import ArchiveResult, Args, ExitCode, archive
+from .main import archive
 
 """Public symbols exported by this module."""
 __all__ = ("main", "parser")

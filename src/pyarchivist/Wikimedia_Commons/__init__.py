@@ -1,15 +1,6 @@
-"""Wikimedia Commons archive subpackage.
+"""Wikimedia Commons archive subpackage."""
 
-Re-exports the library API from :mod:`.main`.
-"""
-
-from .main import ArchiveError, ArchiveResult, Args, ExitCode, archive
+from .main import archive
 
 """Public API exports."""
-__all__ = (
-    "ExitCode",
-    "Args",
-    "ArchiveError",
-    "ArchiveResult",
-    "archive",
-)
+__all__ = ("archive",)
