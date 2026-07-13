@@ -58,7 +58,7 @@ dev = [
   "pytest-cov>=7.0.0",
   "pytest-xdist>=3.8.0",
   "ruff>=0.15.0",
-  "rumdl>=0.1.20",
+  "rumdl>=0.2.28",
   "ty>=0.0.31",
 ]
 uvloop = ["pyarchivist[uvloop]"]
