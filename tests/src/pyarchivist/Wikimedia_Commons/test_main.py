@@ -699,6 +699,7 @@ async def test_main_query_error_sets_query_and_generic_exit_code(
         dest=Path(tmp_path),
         index=None,
         ignore_individual_errors=False,
+        max_retries=0,
     )
 
     ec = await main(args)
@@ -957,6 +958,7 @@ async def test_query_partial_error_with_ignore_sets_partial_flag(
         dest=Path(tmp_path),
         index=None,
         ignore_individual_errors=True,
+        max_retries=0,
     )
 
     ec = await main(args)
@@ -1260,6 +1262,7 @@ async def test_fetch_error_variants(
         dest=Path(tmp_path),
         index=None,
         ignore_individual_errors=ignore,
+        max_retries=0,
     )
 
     code = await main(args)
