@@ -56,7 +56,8 @@ async def test_main_configures_logging_and_invokes_parsed_entry(
         ["pyarchivist.Wikimedia_Commons", "-d", "tmp", "File:Example.jpg"],
     )
 
-    await commons_module_main._cli_entry()
+    with pytest.raises(SystemExit):
+        await commons_module_main._cli_entry()
 
     assert seen["level"] == INFO
     assert seen["argv"] == ["-d", "tmp", "File:Example.jpg"]

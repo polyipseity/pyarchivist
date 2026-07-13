@@ -14,7 +14,6 @@ dependencies = [
   "aiohttp>=3.8.4",
   "anyio>=3.6.2",
   "asyncer>=0.0.17",
-  "html2text>=2020.1.16",
   "pydantic>=2.12.0",
   "yarl>=1.9.2",
 ]

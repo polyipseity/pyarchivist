@@ -51,6 +51,8 @@ def _archive_result_to_exit_code(result: ArchiveResult) -> ExitCode:
             ec |= ExitCode.INDEX_ERROR
         else:
             ec |= ExitCode.GENERIC_ERROR
+    if result.errors:
+        ec |= ExitCode.GENERIC_ERROR
     if result.downloaded == 0 and not ec:
         ec |= ExitCode.GENERIC_ERROR
     return ec

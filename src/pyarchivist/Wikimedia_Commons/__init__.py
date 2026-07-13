@@ -6,17 +6,18 @@ library-oriented API. Helper utilities and small types used across the flow
 are declared here as well.
 """
 
-from collections.abc import Callable, Collection, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass
 from enum import IntFlag, auto, unique
 from html import escape as html_escape
 from itertools import chain
+from random import random as _random
 from re import MULTILINE, compile
 from typing import ClassVar, TypeVar, final
 from urllib.parse import quote, unquote
 
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
-from anyio import Path
+from anyio import Path, sleep
 from asyncer import SoonValue, asyncify, create_task_group
 from yarl import URL
 
@@ -59,8 +60,8 @@ class ExitCode(IntFlag):
     QUERY_ERROR = auto()
     FETCH_ERROR = auto()
     INDEX_ERROR = auto()
-    QUERY_ERROR_PARTIAL = auto()
-    FETCH_ERROR_PARTIAL = auto()
+    QUERY_ERROR_PARTIAL = QUERY_ERROR | 16
+    FETCH_ERROR_PARTIAL = FETCH_ERROR | 32
 
 
 @final
@@ -288,6 +289,32 @@ def _separate_results(
     return successful, errors
 
 
+async def _with_retry[_T](
+    fn: Callable[[], Awaitable[_T | BaseException]],
+    max_retries: int,
+    retry_delay: float,
+    phase: str,
+) -> _T | BaseException:
+    """Execute ``fn`` with exponential backoff + jitter up to ``max_retries``.
+
+    Retries only when ``fn`` returns an ``Exception`` (not
+    ``BaseException``). The delay doubles each retry with ±10% jitter.
+    """
+    attempt = 0
+    while True:
+        result = await fn()
+        if not isinstance(result, BaseException):
+            return result
+        if attempt < max_retries:
+            delay = retry_delay * (2**attempt)
+            delay += delay * 0.1 * (_random() - 0.5)  # ±10 % jitter
+            LOGGER.info("Retrying %s (attempt %d/%d)", phase, attempt + 1, max_retries)
+            await sleep(delay)
+            attempt += 1
+        else:
+            return result
+
+
 async def archive(args: Args) -> ArchiveResult:
     """Primary coroutine implementing the query-fetch-index flow.
 
@@ -350,7 +377,16 @@ async def archive(args: Args) -> ArchiveResult:
                 svs: list[SoonValue[Iterable[tuple[str, Page]] | BaseException]] = []
                 async with create_task_group() as tg:
                     for idx in range(0, len(inputs), _QUERY_LIMIT):
-                        svs.append(tg.soonify(query)(inputs[idx : idx + _QUERY_LIMIT]))
+                        svs.append(
+                            tg.soonify(_with_retry)(
+                                lambda batch=inputs[idx : idx + _QUERY_LIMIT]: query(
+                                    batch
+                                ),
+                                args.max_retries,
+                                args.retry_delay,
+                                "query",
+                            )
+                        )
                 # at this point the task group has exited and all queries have
                 # completed; we can safely access ``.value`` on each SoonValue.
                 queries = [sv.value for sv in svs]
@@ -377,30 +413,42 @@ async def archive(args: Args) -> ArchiveResult:
             try:
                 LOGGER.info(f"Fetching {len(pages)} files")
 
-                async def fetch(page: Page) -> tuple[str, str] | BaseException:
+                async def fetch(page: Page) -> tuple[str, str, bool] | BaseException:
                     """Download the binary content for ``page`` and return a tuple
-                    of ``(filename, index_line)``, or the exception if the fetch
-                    fails.
+                    of ``(filename, index_line, was_skipped)``, or the exception
+                    if the fetch fails.
                     """
                     try:
                         filename = page.title.split(":", 1)[-1]
+                        # Input validation: reject empty, path separators, or
+                        # dot-directories
+                        if not filename or "/" in filename or filename in (".", ".."):
+                            return ValueError(
+                                f"Invalid filename derived from title: '{page.title}'"
+                            )
                         if page.imageinfo is None:
                             raise ValueError(f"Failed to fetch '{filename}'")
                         dest_path = args.dest
-                        # ensure destination directory exists before writing
-                        # files
                         await dest_path.mkdir(parents=True, exist_ok=True)
+                        dest_file = dest_path / filename
+                        # Skip existing files when skip_existing is True
+                        if args.skip_existing and await dest_file.exists():
+                            LOGGER.info("Skipping existing '%s'", filename)
+                            credit = await asyncify(_credit_formatter)(page)
+                            index_line = await asyncify(_index_formatter)(
+                                filename, credit
+                            )
+                            return filename, index_line, True
                         async with (
                             sess.get(page.imageinfo[0].url) as resp,
-                            await (dest_path / filename).open(mode="wb") as file,
+                            await dest_file.open(mode="wb") as file,
                         ):
-                            LOGGER.info(f"Fetching '{filename}'")
+                            LOGGER.info("Fetching '%s'", filename)
                             async for chunk in resp.content.iter_any():
                                 await file.write(chunk)
-                        # compute credit/index lines off the event loop
                         credit = await asyncify(_credit_formatter)(page)
                         index_line = await asyncify(_index_formatter)(filename, credit)
-                        return filename, index_line
+                        return filename, index_line, False
                     except BaseException as e:
                         return e
 
@@ -408,14 +456,29 @@ async def archive(args: Args) -> ArchiveResult:
                     args.progress_callback(0, len(pages))
                 # fetch pages concurrently, capturing their return values with
                 # SoonValue so we can access them after the task group exits.
-                fetch_svs: list[SoonValue[tuple[str, str] | BaseException]] = []
+                fetch_svs: list[SoonValue[tuple[str, str, bool] | BaseException]] = []
                 async with create_task_group() as tg:
                     for page in pages:
-                        fetch_svs.append(tg.soonify(fetch)(page))
-                entries = [sv.value for sv in fetch_svs]
-                entries, fetch_errors = _separate_results(entries, phase="fetch")
+                        fetch_svs.append(
+                            tg.soonify(_with_retry)(
+                                lambda p=page: fetch(p),
+                                args.max_retries,
+                                args.retry_delay,
+                                "fetch",
+                            )
+                        )
+                raw_entries = [sv.value for sv in fetch_svs]
+                raw_entries, fetch_errors = _separate_results(
+                    raw_entries, phase="fetch"
+                )
                 all_errors.extend(fetch_errors)
-                downloaded = len(entries)
+                entries: list[tuple[str, str]] = []
+                for filename, index_line, was_skipped in raw_entries:
+                    if was_skipped:
+                        skipped += 1
+                    else:
+                        downloaded += 1
+                    entries.append((filename, index_line))
                 if args.progress_callback is not None:
                     args.progress_callback(downloaded, len(pages))
             except Exception:

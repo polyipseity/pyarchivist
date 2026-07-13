@@ -53,7 +53,8 @@ async def test_main_configures_logging_and_invokes_parsed_entry(
         ["pyarchivist", "Wikimedia_Commons", "--help"],
     )
 
-    await package_main.main()
+    with pytest.raises(SystemExit):
+        await package_main.main()
 
     assert seen["level"] == INFO
     assert seen["argv"] == ["Wikimedia_Commons", "--help"]
