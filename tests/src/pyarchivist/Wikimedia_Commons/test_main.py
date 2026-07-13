@@ -7,6 +7,7 @@ I/O and exercise the query -> fetch -> optional indexing code paths.
 import json
 import re
 import string
+import time
 from argparse import _VersionAction
 from collections.abc import AsyncIterator
 from html import escape as html_escape
@@ -28,6 +29,7 @@ from pyarchivist.Wikimedia_Commons.main import (
     _credit_formatter,
     _handle_partial_errors,
     _index_formatter,
+    _with_retry,
 )
 from pyarchivist.Wikimedia_Commons.models import (
     ExtMetadata,
@@ -309,6 +311,7 @@ async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partia
         dest=Path(tmp_path),
         index=None,
         ignore_individual_errors=True,
+        max_retries=0,
     )
 
     ec = await main(args)
@@ -349,6 +352,7 @@ async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
         dest=Path(tmp_path),
         index=None,
         ignore_individual_errors=False,
+        max_retries=0,
     )
 
     ec = await main(args)
@@ -665,6 +669,130 @@ def test_parser_version_action_contains_workspace_version() -> None:
     assert isinstance(version_actions[0], _VersionAction)
     assert version_actions[0].version is not None
     assert version_actions[0].version.endswith(f"v{VERSION}")
+
+
+# --- _with_retry regression tests ---
+
+
+@pytest.mark.anyio
+async def test_with_retry_success_on_first_try() -> None:
+    """When the function succeeds on the first call, _with_retry should return
+    the value immediately without retrying.
+    """
+    call_count: int = 0
+
+    async def fn() -> str:
+        nonlocal call_count
+        call_count += 1
+        return "ok"
+
+    result = await _with_retry(fn, max_retries=3, retry_delay=0.01, phase="test")
+    assert result == "ok"
+    assert call_count == 1
+
+
+@pytest.mark.anyio
+async def test_with_retry_exhausted() -> None:
+    """When the function always returns an Exception, _with_retry should retry
+    up to max_retries times and then return the Exception.
+    """
+    call_count: int = 0
+
+    async def fn() -> ValueError:
+        nonlocal call_count
+        call_count += 1
+        return ValueError("fail")
+
+    result = await _with_retry(fn, max_retries=2, retry_delay=0.01, phase="test")
+    assert isinstance(result, ValueError)
+    assert str(result) == "fail"
+    assert call_count == 3  # initial + 2 retries
+
+
+@pytest.mark.anyio
+async def test_with_retry_recovery() -> None:
+    """When the function fails k times then succeeds, _with_retry should
+    return the success value after k retries.
+    """
+    call_count: int = 0
+
+    async def fn() -> str | ValueError:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 2:
+            return ValueError("not yet")
+        return "recovered"
+
+    result = await _with_retry(fn, max_retries=3, retry_delay=0.01, phase="test")
+    assert result == "recovered"
+    assert call_count == 3
+
+
+@pytest.mark.anyio
+async def test_with_retry_base_exception_retried() -> None:
+    """Non-``Exception`` ``BaseException`` subclasses (e.g. ``KeyboardInterrupt``)
+    are retried by ``_with_retry`` — it treats all ``BaseException`` return
+    values uniformly without distinguishing ``Exception``.
+    """
+    call_count: int = 0
+
+    async def fn() -> KeyboardInterrupt:
+        nonlocal call_count
+        call_count += 1
+        return KeyboardInterrupt()
+
+    result = await _with_retry(fn, max_retries=2, retry_delay=0.01, phase="test")
+    assert isinstance(result, KeyboardInterrupt)
+    assert call_count == 3  # retried like any other BaseException
+
+
+@pytest.mark.anyio
+async def test_with_retry_max_retries_zero() -> None:
+    """When max_retries=0, _with_retry should not retry at all and return
+    the Exception immediately.
+    """
+    call_count: int = 0
+
+    async def fn() -> RuntimeError:
+        nonlocal call_count
+        call_count += 1
+        return RuntimeError("no retry")
+
+    result = await _with_retry(fn, max_retries=0, retry_delay=0.01, phase="test")
+    assert isinstance(result, RuntimeError)
+    assert call_count == 1
+
+
+@pytest.mark.anyio
+async def test_with_retry_exponential_backoff_timing() -> None:
+    """Verify that the backoff delay approximately doubles each retry.
+
+    Uses a coarse timing check with generous tolerance to avoid flakiness
+    in CI or on loaded systems.
+    """
+    call_count: int = 0
+    retry_delay: float = 0.05
+
+    async def fn() -> ValueError:
+        nonlocal call_count
+        call_count += 1
+        return ValueError("timing")
+
+    t0 = time.monotonic()
+    result = await _with_retry(fn, max_retries=2, retry_delay=retry_delay, phase="test")
+    elapsed = time.monotonic() - t0
+
+    assert isinstance(result, ValueError)
+    assert call_count == 3
+    # expected minimum: retry_delay + retry_delay*2 = 0.05 + 0.10 = 0.15s
+    # with ±10% jitter on each: min ~0.135s, max ~0.165s
+    # allow generous bounds: >= 0.10s (accounting for jitter floor) and <= 0.50s
+    # (accounting for system scheduling)
+    assert elapsed >= 0.075, f"elapsed={elapsed:.3f}s too low for 2 retries"
+    assert elapsed <= 0.50, f"elapsed={elapsed:.3f}s suspiciously high"
+
+
+# --- end _with_retry regression tests ---
 
 
 @pytest.mark.anyio
