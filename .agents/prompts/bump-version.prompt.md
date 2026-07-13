@@ -13,27 +13,27 @@ argument-hint: Required `part=major|minor|patch`. Optional `commitNow=no` to ski
 1. **Read current versions**
    - Print the current canonical version from `pyproject.toml` and search the repository for a source file that defines a `VERSION` variable (e.g., `src/<pkg>/meta.py`, `src/<pkg>/__init__.py` or `<pkg>/__init__.py`). Example (one-liners):
 
-     ```shell
-     python - <<'PY'
-     import tomllib,sys,glob,re
-     data = tomllib.loads(open('pyproject.toml','rb').read())
-     print('pyproject:', data['project']['version'])
-     candidates = (
-         glob.glob('src/*/meta.py') + glob.glob('src/*/__init__.py') +
-         glob.glob('*/*/meta.py') + glob.glob('*/*/__init__.py') +
-         glob.glob('*/meta.py') + glob.glob('*/__init__.py')
-     )
-     for p in candidates:
-         s = open(p,'r',encoding='utf-8').read()
-         m = re.search(r'^VERSION\s*=\s*["\'](.*)["\']', s, re.M)
-         if m:
-             print(p + ':', m.group(1))
-             break
-     else:
-         print('package_version: not found')
-         sys.exit(2)
-     PY
-     ```
+   ```shell
+   python - <<'PY'
+   import tomllib,sys,glob,re
+   data = tomllib.loads(open('pyproject.toml','rb').read())
+   print('pyproject:', data['project']['version'])
+   candidates = (
+       glob.glob('src/*/meta.py') + glob.glob('src/*/__init__.py') +
+       glob.glob('*/*/meta.py') + glob.glob('*/*/__init__.py') +
+       glob.glob('*/meta.py') + glob.glob('*/__init__.py')
+   )
+   for p in candidates:
+       s = open(p,'r',encoding='utf-8').read()
+       m = re.search(r'^VERSION\s*=\s*["\'](.*)["\']', s, re.M)
+       if m:
+           print(p + ':', m.group(1))
+           break
+   else:
+       print('package_version: not found')
+       sys.exit(2)
+   PY
+   ```
 
    - If the two versions do not match exactly, stop and report the mismatch (do not attempt an automated fix).
 
