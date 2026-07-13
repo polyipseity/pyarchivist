@@ -5,7 +5,7 @@ build-backend = "uv_build"
 # update `src/pyarchivist/meta.py`
 [project]
 name = "pyarchivist"
-version = "3.1.0"
+version = "4.0.0"
 requires-python = ">=3.12.0"
 description = "Archive things from the Internet."
 license = { file = "LICENSE.txt" }
