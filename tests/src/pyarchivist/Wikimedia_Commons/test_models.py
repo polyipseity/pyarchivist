@@ -7,7 +7,7 @@ that `_credit_formatter` handles missing/partial metadata without raising.
 import pytest
 from pydantic import ValidationError
 
-from pyarchivist.Wikimedia_Commons import _credit_formatter
+from pyarchivist.Wikimedia_Commons.main import _credit_formatter
 from pyarchivist.Wikimedia_Commons.models import ImageInfoEntry, Page, ResponseModel
 
 """Public symbols exported by this module (none)."""

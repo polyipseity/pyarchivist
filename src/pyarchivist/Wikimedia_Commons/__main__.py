@@ -17,12 +17,7 @@ from asyncer import runnify
 
 from pyarchivist.meta import VERSION
 
-from . import (  # noqa: F811  -- re-export of `main` for backward compat
-    ArchiveResult,
-    Args,
-    ExitCode,
-    archive,
-)
+from .main import ArchiveResult, Args, ExitCode, archive
 
 """Public symbols exported by this module."""
 __all__ = ("main", "parser")

@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from html import escape as html_escape
 from os import PathLike, fspath
 from typing import Any, cast, override
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import pytest
 from anyio import Path, sleep
@@ -20,7 +20,8 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from pyarchivist.meta import VERSION
-from pyarchivist.Wikimedia_Commons import (
+from pyarchivist.Wikimedia_Commons.__main__ import main, parser
+from pyarchivist.Wikimedia_Commons.main import (
     _INDEX_FORMAT_PATTERN,
     _PERCENT_ESCAPE_SAFE,
     Args,
@@ -28,9 +29,7 @@ from pyarchivist.Wikimedia_Commons import (
     _credit_formatter,
     _handle_partial_errors,
     _index_formatter,
-    unquote,
 )
-from pyarchivist.Wikimedia_Commons.__main__ import main, parser
 from pyarchivist.Wikimedia_Commons.models import (
     ExtMetadata,
     ImageInfoEntry,
@@ -167,7 +166,7 @@ async def test_query_and_fetch_writes_file(
         return fake_sess
 
     monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
     )
 
     args: Args = Args(
@@ -236,7 +235,7 @@ async def test_indexing_updates_index_file(
         return fake_sess
 
     monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory_2
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory_2
     )
 
     # write the parametrized initial index content
@@ -303,7 +302,7 @@ async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partia
         return fake_sess
 
     monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
     )
 
     args: Args = Args(
@@ -343,7 +342,7 @@ async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
         return fake_sess
 
     monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
     )
 
     args: Args = Args(
@@ -693,7 +692,7 @@ async def test_main_query_error_sets_query_and_generic_exit_code(
         return fake
 
     monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
     )
 
     args: Args = Args(
@@ -741,7 +740,7 @@ async def test_main_deduplicates_inputs(
         return fake_sess
 
     monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
     )
 
     # duplicate inputs should be deduplicated by `main`
@@ -789,7 +788,7 @@ async def test_index_file_created_when_missing(
         return fake_sess
 
     monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
     )
 
     index_path: Path = Path(tmp_path) / "subdir" / "index.md"
@@ -816,7 +815,7 @@ async def test_query_batching_respects_query_limit(
 ) -> None:
     """With a small `_QUERY_LIMIT` the implementation should batch queries."""
     # set a small query limit to force batching
-    monkeypatch.setattr("pyarchivist.Wikimedia_Commons._QUERY_LIMIT", 1)
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main._QUERY_LIMIT", 1)
 
     class CountingClient(_FakeClientSession):
         """Client that counts API query calls to validate batching behaviour."""
@@ -882,7 +881,7 @@ async def test_query_batching_respects_query_limit(
         return fake
 
     monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
     )
 
     args: Args = Args(
@@ -906,7 +905,7 @@ async def test_query_partial_error_with_ignore_sets_partial_flag(
     --ignore-individual-errors the partial query should be swallowed and
     QUERY_ERROR_PARTIAL should be set.
     """
-    monkeypatch.setattr("pyarchivist.Wikimedia_Commons._QUERY_LIMIT", 1)
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main._QUERY_LIMIT", 1)
 
     class PartialFailClient(_FakeClientSession):
         """Client that simulates one successful and one failing API batch."""
@@ -951,7 +950,7 @@ async def test_query_partial_error_with_ignore_sets_partial_flag(
         return fake
 
     monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
     )
 
     args: Args = Args(
@@ -1240,7 +1239,7 @@ async def test_fetch_error_variants(
         return fake
 
     monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
     )
 
     # choose inputs depending on scenario
@@ -1309,7 +1308,7 @@ async def test_indexing_merges_percent_encoded_existing_entry(
         return fake_sess
 
     monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
     )
 
     # index contains a percent-encoded link target and an escaped label
@@ -1421,7 +1420,7 @@ async def test_main_index_error_sets_index_and_generic_flags(
         return await real_open_any(path, *args, **kwargs)
 
     monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
     )
     monkeypatch.setattr(Path, "open", failing_open)
 
