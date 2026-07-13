@@ -682,6 +682,7 @@ async def test_with_retry_success_on_first_try() -> None:
     call_count: int = 0
 
     async def fn() -> str:
+        """Return success immediately without error."""
         nonlocal call_count
         call_count += 1
         return "ok"
@@ -699,6 +700,7 @@ async def test_with_retry_exhausted() -> None:
     call_count: int = 0
 
     async def fn() -> ValueError:
+        """Always return a ValueError to trigger retries."""
         nonlocal call_count
         call_count += 1
         return ValueError("fail")
@@ -717,6 +719,7 @@ async def test_with_retry_recovery() -> None:
     call_count: int = 0
 
     async def fn() -> str | ValueError:
+        """Return ValueError for the first two calls, then succeed."""
         nonlocal call_count
         call_count += 1
         if call_count <= 2:
@@ -737,6 +740,7 @@ async def test_with_retry_base_exception_retried() -> None:
     call_count: int = 0
 
     async def fn() -> KeyboardInterrupt:
+        """Return a KeyboardInterrupt to test BaseException handling."""
         nonlocal call_count
         call_count += 1
         return KeyboardInterrupt()
@@ -754,6 +758,7 @@ async def test_with_retry_max_retries_zero() -> None:
     call_count: int = 0
 
     async def fn() -> RuntimeError:
+        """Return a RuntimeError to verify max_retries=0 bypass."""
         nonlocal call_count
         call_count += 1
         return RuntimeError("no retry")
@@ -774,6 +779,7 @@ async def test_with_retry_exponential_backoff_timing() -> None:
     retry_delay: float = 0.05
 
     async def fn() -> ValueError:
+        """Always return a ValueError to trigger retries for timing."""
         nonlocal call_count
         call_count += 1
         return ValueError("timing")
