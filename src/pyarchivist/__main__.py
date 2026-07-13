@@ -2,10 +2,11 @@
 
 This module is executed when the package is run with `python -m pyarchivist`.
 It configures basic logging and executes the selected CLI subcommand.
+The only place where ``exit()`` is called.
 """
 
 from logging import INFO, basicConfig
-from sys import argv
+from sys import argv, exit
 
 from asyncer import runnify
 
@@ -23,7 +24,8 @@ async def main() -> None:
     """
     basicConfig(level=INFO)
     entry = parser().parse_args(argv[1:])
-    await entry.invoke(entry)
+    ec = await entry.invoke(entry)
+    exit(ec)
 
 
 def __main__() -> None:

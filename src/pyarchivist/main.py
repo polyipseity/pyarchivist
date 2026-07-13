@@ -12,7 +12,7 @@ from pyarchivist.meta import VERSION
 
 from .Wikimedia_Commons import __name__ as Wikimedia_Commons_name
 from .Wikimedia_Commons import __package__ as Wikimedia_Commons_package
-from .Wikimedia_Commons.main import parser as Wikimedia_Commons_parser
+from .Wikimedia_Commons.__main__ import parser as Wikimedia_Commons_parser
 
 """Public symbols exported by this module."""
 __all__ = ("parser",)

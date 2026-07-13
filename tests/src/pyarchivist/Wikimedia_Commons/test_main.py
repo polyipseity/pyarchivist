@@ -1,4 +1,4 @@
-"""Integration-style unit tests for `Wikimedia_Commons.main` flows.
+"""Integration-style unit tests for `Wikimedia_Commons` flows.
 
 These tests mock `aiohttp.ClientSession` at the module level to avoid network
 I/O and exercise the query -> fetch -> optional indexing code paths.
@@ -20,8 +20,17 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from pyarchivist.meta import VERSION
-from pyarchivist.Wikimedia_Commons import main as commons_main
-from pyarchivist.Wikimedia_Commons.main import Args
+from pyarchivist.Wikimedia_Commons import (
+    _INDEX_FORMAT_PATTERN,
+    _PERCENT_ESCAPE_SAFE,
+    Args,
+    ExitCode,
+    _credit_formatter,
+    _handle_partial_errors,
+    _index_formatter,
+    unquote,
+)
+from pyarchivist.Wikimedia_Commons.__main__ import main, parser
 from pyarchivist.Wikimedia_Commons.models import (
     ExtMetadata,
     ImageInfoEntry,
@@ -157,12 +166,9 @@ async def test_query_and_fetch_writes_file(
         """Return the configured fake session for the test."""
         return fake_sess
 
-    def _fake_exit(code: int | object) -> None:
-        """No-op replacement for sys.exit used in tests."""
-        return None
-
-    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
-    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+    )
 
     args: Args = Args(
         inputs=("File:Example.jpg",),
@@ -171,7 +177,7 @@ async def test_query_and_fetch_writes_file(
         ignore_individual_errors=False,
     )
 
-    await commons_main.main(args)
+    await main(args)
 
     out: Path = Path(tmp_path) / "Example.jpg"
     assert await out.exists()
@@ -229,12 +235,9 @@ async def test_indexing_updates_index_file(
         """Return prepared fake session for indexing test."""
         return fake_sess
 
-    def _fake_exit_2(code: int | object) -> None:
-        """No-op exit replacement for tests."""
-        return None
-
-    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory_2)
-    monkeypatch.setattr(commons_main, "exit", _fake_exit_2)
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory_2
+    )
 
     # write the parametrized initial index content
     index_path: Path = Path(tmp_path) / "index.md"
@@ -247,7 +250,7 @@ async def test_indexing_updates_index_file(
         ignore_individual_errors=False,
     )
 
-    await commons_main.main(args)
+    await main(args)
 
     text: str = await index_path.read_text(encoding="utf-8")
     paragraphs = text.strip().split("\n\n")
@@ -299,14 +302,9 @@ async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partia
         """Return the prepared fake session for the fetch-partial test."""
         return fake_sess
 
-    captured: dict[str, object] = {}
-
-    def _fake_exit(code: int | object) -> None:
-        """Capture exit code for assertions in the test."""
-        captured["code"] = code
-
-    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
-    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+    )
 
     args: Args = Args(
         inputs=("File:Good.jpg", "File:Bad.jpg"),
@@ -315,7 +313,7 @@ async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partia
         ignore_individual_errors=True,
     )
 
-    await commons_main.main(args)
+    ec = await main(args)
 
     # Good file should be written
     out: Path = Path(tmp_path) / "Good.jpg"
@@ -323,9 +321,8 @@ async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partia
     assert await out.read_bytes() == b"good-bytes"
 
     # Exit code should include the FETCH_ERROR_PARTIAL flag
-    assert "code" in captured
-    assert isinstance(captured["code"], commons_main.ExitCode)
-    assert bool(captured["code"] & commons_main.ExitCode.FETCH_ERROR_PARTIAL)
+    assert isinstance(ec, ExitCode)
+    assert bool(ec & ExitCode.FETCH_ERROR_PARTIAL)
 
 
 @pytest.mark.anyio
@@ -345,17 +342,9 @@ async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
         """Return the fake session containing the bad API payload."""
         return fake_sess
 
-    captured: dict[str, object] = {}
-
-    def _fake_exit(code: int | object) -> None:
-        """Capture the exit code produced by the run.
-
-        Tests assert on the captured value.
-        """
-        captured["code"] = code
-
-    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
-    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+    )
 
     args: Args = Args(
         inputs=("File:Bad.jpg",),
@@ -364,11 +353,10 @@ async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
         ignore_individual_errors=False,
     )
 
-    await commons_main.main(args)
+    ec = await main(args)
 
-    assert "code" in captured
-    assert isinstance(captured["code"], commons_main.ExitCode)
-    assert bool(captured["code"] & commons_main.ExitCode.FETCH_ERROR)
+    assert isinstance(ec, ExitCode)
+    assert bool(ec & ExitCode.FETCH_ERROR)
 
 
 @pytest.mark.parametrize(
@@ -386,7 +374,7 @@ def test_index_formatter_handles_various_filenames(
     raw: str, has_bracket: bool, has_backslash: bool, has_safe: bool
 ) -> None:
     """Verify `_index_formatter` handles brackets, backslashes and safe chars."""
-    out = commons_main._index_formatter(raw, "credit")
+    out = _index_formatter(raw, "credit")
 
     # label is the human-readable portion between [ and ]
     m = re.search(r"^- \[((?:\\.|[^\]])*?)\]\((.*?)\): ", out)
@@ -431,7 +419,7 @@ def test_index_formatter_handles_various_filenames(
 )
 def test_index_formatter_property(fname: str) -> None:
     """Property-based check ensuring `_index_formatter` escapes and quotes."""
-    out = commons_main._index_formatter(fname, "credit")
+    out = _index_formatter(fname, "credit")
     m = re.search(r"^- \[((?:\\.|[^\]])*?)\]\((.*?)\): ", out)
     assert m is not None
     label, link = m.groups()
@@ -446,13 +434,13 @@ def test_index_formatter_property(fname: str) -> None:
         assert label.count("\\") == fname.count("\\") * 2 + fname.count("]")
 
     # link should be the quoted filename (preserving safe chars)
-    expected = quote(fname, safe=commons_main._PERCENT_ESCAPE_SAFE)
+    expected = quote(fname, safe=_PERCENT_ESCAPE_SAFE)
     assert expected in link
 
 
 def test_parser_produces_typed_namespace(tmp_path: PathLike[str]) -> None:
     """Ensure the Wikimedia subparser produces a typed argparse namespace."""
-    p = commons_main.parser()
+    p = parser()
     ns = p.parse_args(["-d", fspath(tmp_path), "File:Foo.jpg"])
 
     # argparse should have converted dest to an anyio.Path and set defaults
@@ -466,7 +454,7 @@ def test_handle_partial_errors_behaviour() -> None:
     """Verify `_handle_partial_errors` swallows exceptions when configured."""
     # mixed successful result + an Exception should be swallowed when ignoring
     results = [ValueError("x"), "ok"]
-    flag, vals = commons_main._handle_partial_errors(
+    flag, vals = _handle_partial_errors(
         results, ignore_individual_errors=True, error_message="err"
     )
     assert flag is True
@@ -474,7 +462,7 @@ def test_handle_partial_errors_behaviour() -> None:
 
     # presence of a non-Exception BaseException should raise BaseExceptionGroup
     with pytest.raises(BaseExceptionGroup):
-        commons_main._handle_partial_errors(
+        _handle_partial_errors(
             [ValueError("x"), KeyboardInterrupt()], ignore_individual_errors=True
         )
 
@@ -482,9 +470,7 @@ def test_handle_partial_errors_behaviour() -> None:
 def test_handle_partial_errors_no_exceptions_returns_values() -> None:
     """When no exceptions are present `_handle_partial_errors` should return values."""
     results = [1, 2, 3]
-    flag, vals = commons_main._handle_partial_errors(
-        results, ignore_individual_errors=False
-    )
+    flag, vals = _handle_partial_errors(results, ignore_individual_errors=False)
     assert flag is False
     assert vals == tuple(results)
 
@@ -493,7 +479,7 @@ def test_handle_partial_errors_raises_when_not_ignoring() -> None:
     """If ignore_individual_errors is False, exceptions should propagate."""
     # when exceptions are present and not ignored an ExceptionGroup is raised
     with pytest.raises(ExceptionGroup):
-        commons_main._handle_partial_errors(
+        _handle_partial_errors(
             [ValueError("a"), ValueError("b")], ignore_individual_errors=False
         )
 
@@ -513,7 +499,7 @@ def test_handle_partial_errors_raises_on_non_exception_base(
     helper must raise a BaseExceptionGroup regardless of the ignore flag.
     """
     with pytest.raises(BaseExceptionGroup):
-        commons_main._handle_partial_errors(items, ignore_individual_errors=True)
+        _handle_partial_errors(items, ignore_individual_errors=True)
 
 
 @given(
@@ -546,16 +532,14 @@ def test_handle_partial_errors_swallow_exceptions_and_return_values(
     # derive expected non-exception values
     expected = tuple(x for x in items if not isinstance(x, BaseException))
 
-    flag, vals = commons_main._handle_partial_errors(
-        items, ignore_individual_errors=True
-    )
+    flag, vals = _handle_partial_errors(items, ignore_individual_errors=True)
 
     assert flag is True
     assert vals == expected
 
     # when not ignoring, the same input must raise an ExceptionGroup
     with pytest.raises(ExceptionGroup):
-        commons_main._handle_partial_errors(items, ignore_individual_errors=False)
+        _handle_partial_errors(items, ignore_individual_errors=False)
 
 
 def test_credit_formatter_unknown_and_license_url_variants() -> None:
@@ -571,7 +555,7 @@ def test_credit_formatter_unknown_and_license_url_variants() -> None:
     )
     page = Page(title="File:Test.jpg", imageinfo=(ii,))
 
-    credit = commons_main._credit_formatter(page)
+    credit = _credit_formatter(page)
     # unknown author should fall back to the 'See page for author' text
     assert "See page for author" in credit
     # unknown license text should be replaced by fallback but still linked
@@ -617,7 +601,7 @@ def test_credit_formatter_property_variants(
     )
     page = Page(title="File:Prop.jpg", imageinfo=(ii,))
 
-    out = commons_main._credit_formatter(page)
+    out = _credit_formatter(page)
 
     # unknown author -> fallback text
     if artist and "unknown author" in artist.casefold():
@@ -662,7 +646,7 @@ def test_credit_formatter_strips_html_and_newlines() -> None:
     )
     page = Page(title="File:Html.jpg", imageinfo=(ii,))
 
-    credit = commons_main._credit_formatter(page)
+    credit = _credit_formatter(page)
     # HTML tags and raw newlines from the metadata should be sanitized
     assert "<b>" not in credit
     assert "\n" not in credit
@@ -675,7 +659,7 @@ def test_parser_version_action_contains_workspace_version() -> None:
     """Verify the parser's --version action contains the workspace VERSION."""
     # find the version action and verify it contains the project VERSION
 
-    p = commons_main.parser()
+    p = parser()
     version_actions = [
         a for a in p._actions if "--version" in getattr(a, "option_strings", [])
     ]
@@ -708,14 +692,9 @@ async def test_main_query_error_sets_query_and_generic_exit_code(
         """Return the BadAPIClient instance for this test."""
         return fake
 
-    captured: dict[str, object] = {}
-
-    def _fake_exit(code: int | object) -> None:
-        """Capture the exit code supplied by the tested function."""
-        captured["code"] = code
-
-    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
-    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+    )
 
     args: Args = Args(
         inputs=("File:Broken.jpg",),
@@ -724,12 +703,11 @@ async def test_main_query_error_sets_query_and_generic_exit_code(
         ignore_individual_errors=False,
     )
 
-    await commons_main.main(args)
+    ec = await main(args)
 
-    assert "code" in captured
-    assert isinstance(captured["code"], commons_main.ExitCode)
-    assert bool(captured["code"] & commons_main.ExitCode.QUERY_ERROR)
-    assert bool(captured["code"] & commons_main.ExitCode.GENERIC_ERROR)
+    assert isinstance(ec, ExitCode)
+    assert bool(ec & ExitCode.QUERY_ERROR)
+    assert bool(ec & ExitCode.GENERIC_ERROR)
 
 
 @pytest.mark.anyio
@@ -762,12 +740,9 @@ async def test_main_deduplicates_inputs(
         """Return the fake session used for deduplication test."""
         return fake_sess
 
-    def _fake_exit(code: int | object) -> None:
-        """No-op replacement for sys.exit used in tests."""
-        return None
-
-    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
-    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+    )
 
     # duplicate inputs should be deduplicated by `main`
     args: Args = Args(
@@ -777,7 +752,7 @@ async def test_main_deduplicates_inputs(
         ignore_individual_errors=False,
     )
 
-    await commons_main.main(args)
+    await main(args)
 
     out = Path(tmp_path) / "Single.jpg"
     assert await out.exists()
@@ -813,12 +788,9 @@ async def test_index_file_created_when_missing(
         """Return the fake session used to create a missing index file."""
         return fake_sess
 
-    def _fake_exit(code: int | object) -> None:
-        """No-op replacement for sys.exit used in this test."""
-        return None
-
-    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
-    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+    )
 
     index_path: Path = Path(tmp_path) / "subdir" / "index.md"
     # ensure file does not exist beforehand
@@ -831,7 +803,7 @@ async def test_index_file_created_when_missing(
         ignore_individual_errors=False,
     )
 
-    await commons_main.main(args)
+    await main(args)
 
     assert await index_path.exists()
     text = await index_path.read_text(encoding="utf-8")
@@ -844,7 +816,7 @@ async def test_query_batching_respects_query_limit(
 ) -> None:
     """With a small `_QUERY_LIMIT` the implementation should batch queries."""
     # set a small query limit to force batching
-    monkeypatch.setattr(commons_main, "_QUERY_LIMIT", 1)
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons._QUERY_LIMIT", 1)
 
     class CountingClient(_FakeClientSession):
         """Client that counts API query calls to validate batching behaviour."""
@@ -909,12 +881,9 @@ async def test_query_batching_respects_query_limit(
         """Return the counting client used to verify batching behaviour."""
         return fake
 
-    def _fake_exit(code: int | object) -> None:
-        """No-op replacement for sys.exit used in this test."""
-        return None
-
-    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
-    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+    )
 
     args: Args = Args(
         inputs=("File:First.jpg", "File:Second.jpg"),
@@ -923,7 +892,7 @@ async def test_query_batching_respects_query_limit(
         ignore_individual_errors=False,
     )
 
-    await commons_main.main(args)
+    await main(args)
 
     # with _QUERY_LIMIT == 1 there should be two separate query calls
     assert fake.query_calls == 2
@@ -937,7 +906,7 @@ async def test_query_partial_error_with_ignore_sets_partial_flag(
     --ignore-individual-errors the partial query should be swallowed and
     QUERY_ERROR_PARTIAL should be set.
     """
-    monkeypatch.setattr(commons_main, "_QUERY_LIMIT", 1)
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons._QUERY_LIMIT", 1)
 
     class PartialFailClient(_FakeClientSession):
         """Client that simulates one successful and one failing API batch."""
@@ -981,14 +950,9 @@ async def test_query_partial_error_with_ignore_sets_partial_flag(
         """Return the partial-fail client for this test scenario."""
         return fake
 
-    captured: dict[str, object] = {}
-
-    def _fake_exit(code: int | object) -> None:
-        """Capture the exit code for assertions on partial error handling."""
-        captured["code"] = code
-
-    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
-    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+    )
 
     args: Args = Args(
         inputs=("File:First.jpg", "File:Second.jpg"),
@@ -997,49 +961,48 @@ async def test_query_partial_error_with_ignore_sets_partial_flag(
         ignore_individual_errors=True,
     )
 
-    await commons_main.main(args)
+    ec = await main(args)
 
     # successful file should be written despite the partial query failure
     out = Path(tmp_path) / "First.jpg"
     assert await out.exists()
     assert await out.read_bytes() == b"ok"
 
-    assert "code" in captured
-    assert isinstance(captured["code"], commons_main.ExitCode)
-    assert bool(captured["code"] & commons_main.ExitCode.QUERY_ERROR_PARTIAL)
+    assert isinstance(ec, ExitCode)
+    assert bool(ec & ExitCode.QUERY_ERROR_PARTIAL)
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "scenario,ignore,expect_written,expected_flags",
     [
-        ("missing_imageinfo_single", False, [], (commons_main.ExitCode.FETCH_ERROR,)),
+        ("missing_imageinfo_single", False, [], (ExitCode.FETCH_ERROR,)),
         (
             "missing_imageinfo_partial",
             True,
             ["Good.jpg"],
-            (commons_main.ExitCode.FETCH_ERROR_PARTIAL,),
+            (ExitCode.FETCH_ERROR_PARTIAL,),
         ),
         (
             "network_error_non_ignored",
             False,
             [],
-            (commons_main.ExitCode.FETCH_ERROR, commons_main.ExitCode.GENERIC_ERROR),
+            (ExitCode.FETCH_ERROR, ExitCode.GENERIC_ERROR),
         ),
         (
             "network_error_ignored",
             True,
             [],
-            (commons_main.ExitCode.FETCH_ERROR_PARTIAL,),
+            (ExitCode.FETCH_ERROR_PARTIAL,),
         ),
-        ("iter_error_ignored", True, [], (commons_main.ExitCode.FETCH_ERROR_PARTIAL,)),
+        ("iter_error_ignored", True, [], (ExitCode.FETCH_ERROR_PARTIAL,)),
         (
             "timeout_non_ignored",
             False,
             [],
-            (commons_main.ExitCode.FETCH_ERROR, commons_main.ExitCode.GENERIC_ERROR),
+            (ExitCode.FETCH_ERROR, ExitCode.GENERIC_ERROR),
         ),
-        ("timeout_ignored", True, [], (commons_main.ExitCode.FETCH_ERROR_PARTIAL,)),
+        ("timeout_ignored", True, [], (ExitCode.FETCH_ERROR_PARTIAL,)),
         ("corrupt_chunks", False, ["Corrupt.jpg"], ()),
     ],
 )
@@ -1049,7 +1012,7 @@ async def test_fetch_error_variants(
     scenario: str,
     ignore: bool,
     expect_written: list[str],
-    expected_flags: tuple[commons_main.ExitCode, ...],
+    expected_flags: tuple[ExitCode, ...],
 ) -> None:
     """Parameterized fetch error scenarios.
 
@@ -1276,14 +1239,9 @@ async def test_fetch_error_variants(
         """Return the configured fake client for the scenario."""
         return fake
 
-    captured: dict[str, object] = {}
-
-    def _fake_exit(code: int | object) -> None:
-        """Capture the exit code emitted by the run for assertions."""
-        captured["code"] = code
-
-    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
-    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+    )
 
     # choose inputs depending on scenario
     if scenario in (
@@ -1306,7 +1264,7 @@ async def test_fetch_error_variants(
         ignore_individual_errors=ignore,
     )
 
-    await commons_main.main(args)
+    code = await main(args)
 
     # check written files
     for fname in expect_written:
@@ -1314,9 +1272,7 @@ async def test_fetch_error_variants(
         assert await out.exists()
 
     # check expected exit flags
-    assert "code" in captured
-    code = captured["code"]
-    assert isinstance(code, commons_main.ExitCode)
+    assert isinstance(code, ExitCode)
     for flag in expected_flags:
         assert bool(code & flag)
 
@@ -1352,12 +1308,9 @@ async def test_indexing_merges_percent_encoded_existing_entry(
         """Return the prepared fake session for indexing/merge checks."""
         return fake_sess
 
-    def _fake_exit(code: int | object) -> None:
-        """No-op replacement for sys.exit used in tests."""
-        return None
-
-    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
-    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+    )
 
     # index contains a percent-encoded link target and an escaped label
     index_path: Path = Path(tmp_path) / "index.md"
@@ -1373,7 +1326,7 @@ async def test_indexing_merges_percent_encoded_existing_entry(
         ignore_individual_errors=False,
     )
 
-    await commons_main.main(args)
+    await main(args)
 
     text = await index_path.read_text(encoding="utf-8")
     paragraphs = text.strip().split("\n\n")
@@ -1398,11 +1351,11 @@ async def test_parser_invoke_builds_args_and_calls_main(
         """Capture the Args instance passed by the parser invoke adapter."""
         captured["args"] = args
 
-    monkeypatch.setattr(commons_main, "main", fake_main)
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.__main__.main", fake_main)
 
     tmp_root = Path(tmp_path)
-    parser = commons_main.parser()
-    namespace = parser.parse_args(
+    p = parser()
+    namespace = p.parse_args(
         [
             "-d",
             fspath(tmp_root),
@@ -1454,12 +1407,6 @@ async def test_main_index_error_sets_index_and_generic_flags(
         """Return the fake client session used by this test."""
         return fake_sess
 
-    captured: dict[str, object] = {}
-
-    def _fake_exit(code: int | object) -> None:
-        """Capture emitted exit code for assertions."""
-        captured["code"] = code
-
     real_open_any = cast(Any, Path.open)
     index_path = Path(tmp_path) / "index.md"
 
@@ -1473,8 +1420,9 @@ async def test_main_index_error_sets_index_and_generic_flags(
             raise OSError("index open failure")
         return await real_open_any(path, *args, **kwargs)
 
-    monkeypatch.setattr(commons_main, "ClientSession", _client_session_factory)
-    monkeypatch.setattr(commons_main, "exit", _fake_exit)
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.ClientSession", _client_session_factory
+    )
     monkeypatch.setattr(Path, "open", failing_open)
 
     args = Args(
@@ -1484,17 +1432,15 @@ async def test_main_index_error_sets_index_and_generic_flags(
         ignore_individual_errors=False,
     )
 
-    await commons_main.main(args)
+    code = await main(args)
 
     downloaded = Path(tmp_path) / "IndexFail.jpg"
     assert await downloaded.exists()
     assert await downloaded.read_bytes() == b"ok"
 
-    assert "code" in captured
-    code = captured["code"]
-    assert isinstance(code, commons_main.ExitCode)
-    assert bool(code & commons_main.ExitCode.INDEX_ERROR)
-    assert bool(code & commons_main.ExitCode.GENERIC_ERROR)
+    assert isinstance(code, ExitCode)
+    assert bool(code & ExitCode.INDEX_ERROR)
+    assert bool(code & ExitCode.GENERIC_ERROR)
 
 
 @pytest.mark.parametrize(
@@ -1508,9 +1454,9 @@ async def test_main_index_error_sets_index_and_generic_flags(
 )
 def test_index_formatter_output_matches_index_pattern(filename: str) -> None:
     """Formatted index lines should round-trip through `_INDEX_FORMAT_PATTERN`."""
-    line = commons_main._index_formatter(filename, "credit")
-    match = commons_main._INDEX_FORMAT_PATTERN.match(line)
+    line = _index_formatter(filename, "credit")
+    match = _INDEX_FORMAT_PATTERN.match(line)
 
     assert match is not None
     assert match.group(0) == line
-    assert commons_main.unquote(match.group(2)) == filename
+    assert unquote(match.group(2)) == filename

@@ -22,7 +22,12 @@ from hypothesis import strategies as st
 
 from pyarchivist import main as pkg_main
 from pyarchivist.meta import VERSION
-from pyarchivist.Wikimedia_Commons import main as commons_main
+from pyarchivist.Wikimedia_Commons import (
+    _PERCENT_ESCAPE_SAFE,
+    Args,
+    _credit_formatter,
+    _index_formatter,
+)
 from pyarchivist.Wikimedia_Commons.models import (
     ExtMetadata,
     ImageInfoEntry,
@@ -71,7 +76,7 @@ def test_top_level_parser_version_action_contains_version() -> None:
 def test_index_formatter_escapes_and_quotes_property(fname: str) -> None:
     """Property test: ensure `_index_formatter` escapes labels and quotes links."""
     # ensure generated filename contains characters we expect (guard)
-    out = commons_main._index_formatter(fname, "credit")
+    out = _index_formatter(fname, "credit")
 
     # label is between the first '[' and the following ']'
     m = re.search(r"^- \[(.*?)]\((.*?)\): ", out)
@@ -85,7 +90,7 @@ def test_index_formatter_escapes_and_quotes_property(fname: str) -> None:
         assert "\\\\" in label
 
     # link target should be the quoted filename
-    expected = quote(fname, safe=commons_main._PERCENT_ESCAPE_SAFE)
+    expected = quote(fname, safe=_PERCENT_ESCAPE_SAFE)
     assert expected in link
 
 
@@ -126,7 +131,7 @@ def test_credit_formatter_property(author: str, lic: str, lic_url: str | None) -
     )
     page = Page(title="File:Prop.jpg", imageinfo=(ii,))
 
-    out = commons_main._credit_formatter(page)
+    out = _credit_formatter(page)
 
     # unknown author -> fallback text
     if author and "unknown author" in author.casefold():
@@ -225,11 +230,11 @@ async def test_top_level_parser_invoke_delegates_to_wikimedia_main(
     """Parsed top-level namespace should await the Wikimedia invoke adapter."""
     captured: dict[str, object] = {}
 
-    async def fake_main(args: commons_main.Args) -> None:
+    async def fake_main(args: Args) -> None:
         """Capture Args supplied by the Wikimedia parser invoke adapter."""
         captured["args"] = args
 
-    monkeypatch.setattr(commons_main, "main", fake_main)
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.__main__.main", fake_main)
 
     parser = pkg_main.parser()
     namespace = parser.parse_args(
@@ -247,7 +252,7 @@ async def test_top_level_parser_invoke_delegates_to_wikimedia_main(
 
     assert "args" in captured
     args = captured["args"]
-    assert isinstance(args, commons_main.Args)
+    assert isinstance(args, Args)
     assert args.inputs == ("File:A.jpg", "File:B.jpg")
     assert args.ignore_individual_errors is True
     assert isinstance(args.dest, Path)

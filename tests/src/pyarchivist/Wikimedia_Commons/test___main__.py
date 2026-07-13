@@ -22,7 +22,7 @@ def test_module_execution_uses_runnify(run_module_helper: RunModuleHelper) -> No
 
     assert called["runnify_called"] is True
     assert called["wrapper_called"] is True
-    assert called["async_function"] == "main"
+    assert called["async_function"] == "_cli_entry"
 
 
 @pytest.mark.anyio
@@ -56,7 +56,7 @@ async def test_main_configures_logging_and_invokes_parsed_entry(
         ["pyarchivist.Wikimedia_Commons", "-d", "tmp", "File:Example.jpg"],
     )
 
-    await commons_module_main.main()
+    await commons_module_main._cli_entry()
 
     assert seen["level"] == INFO
     assert seen["argv"] == ["-d", "tmp", "File:Example.jpg"]
@@ -86,6 +86,6 @@ def test_dunder_main_uses_uvloop_backend(monkeypatch: pytest.MonkeyPatch) -> Non
 
     commons_module_main.__main__()
 
-    assert captured["async_func"] is commons_module_main.main
+    assert captured["async_func"] is commons_module_main._cli_entry
     assert captured["backend_options"] == {"use_uvloop": True}
     assert captured["runner_called"] is True
