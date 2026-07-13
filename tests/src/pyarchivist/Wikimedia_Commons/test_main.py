@@ -11,7 +11,7 @@ from argparse import _VersionAction
 from collections.abc import AsyncIterator
 from html import escape as html_escape
 from os import PathLike, fspath
-from typing import Any, cast
+from typing import Any, cast, override
 from urllib.parse import quote
 
 import pytest
@@ -857,6 +857,7 @@ async def test_query_batching_respects_query_limit(
             # prepare api responses for two distinct inputs
             self._api_json = None
 
+        @override
         def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
             """Return different API payloads depending on the 'titles' query."""
             s = str(url)
@@ -946,6 +947,7 @@ async def test_query_partial_error_with_ignore_sets_partial_flag(
             super().__init__()
             self._file_bytes = b"ok"
 
+        @override
         def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
             """Return a valid response for the first title, raise for the second."""
             s = str(url)
@@ -1126,6 +1128,7 @@ async def test_fetch_error_variants(
                 }
                 self._file_bytes = b"ok"
 
+            @override
             def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
                 """Return API payload or raise for the simulated broken file URL."""
                 s = str(url)
@@ -1146,6 +1149,7 @@ async def test_fetch_error_variants(
         class IterErrorContent(_FakeContent):
             """Content-like object whose iterator raises to simulate stream errors."""
 
+            @override
             async def iter_any(self) -> AsyncIterator[bytes]:
                 """Raise a runtime error when iterated to simulate stream failure."""
                 await sleep(0)
@@ -1184,6 +1188,7 @@ async def test_fetch_error_variants(
                     }
                 }
 
+            @override
             def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
                 """Return the API payload or an `IterErrorResp` for downloads."""
                 s = str(url)
@@ -1218,6 +1223,7 @@ async def test_fetch_error_variants(
                     }
                 }
 
+            @override
             def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
                 """Return API response or raise TimeoutError for download URL."""
                 s = str(url)
@@ -1252,6 +1258,7 @@ async def test_fetch_error_variants(
                     }
                 }
 
+            @override
             def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
                 """Return a response whose content chunks are intentionally corrupted."""
                 s = str(url)
