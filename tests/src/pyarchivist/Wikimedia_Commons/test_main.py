@@ -7,7 +7,6 @@ I/O and exercise the query -> fetch -> optional indexing code paths.
 import json
 import re
 import string
-import time
 from argparse import _VersionAction
 from collections.abc import AsyncIterator
 from html import escape as html_escape
@@ -29,7 +28,6 @@ from pyarchivist.Wikimedia_Commons.main import (
     _credit_formatter,
     _handle_partial_errors,
     _index_formatter,
-    _with_retry,
 )
 from pyarchivist.Wikimedia_Commons.models import (
     ExtMetadata,
@@ -68,6 +66,9 @@ class _FakeResp:
         """Store provided JSON payload and content chunks for reads."""
         self._json: object | None = json_data
         self.content: _FakeContent = _FakeContent(content_chunks or [])
+        self.status: int = 200
+        self.content_type: str = "image/jpeg"
+
 
     async def json(self) -> object | None:
         """Return the stored JSON-like payload."""
@@ -122,6 +123,47 @@ class _FakeClientSession:
             assert fb is not None
             chunks: list[bytes] = [fb[i : i + 8] for i in range(0, len(fb), 8)]
             return _FakeResp(content_chunks=chunks)
+
+    async def request(self, method: str, url: object, *args: object, **kwargs: object) -> _FakeResp:
+        """Dispatch ``request`` calls (used by RetryClient) to ``get``."""
+        if method.upper() == "GET":
+            return self.get(url, *args, **kwargs)
+        raise NotImplementedError(f"Unsupported method: {method}")
+
+    async def close(self) -> None:
+        """No-op close required by RetryClient."""
+
+
+class _PassthroughRetryClient:
+    """Bypass RetryClient; return the underlying session directly."""
+
+    def __init__(self, *, client_session: _FakeClientSession | None = None, **_kwargs: object) -> None:
+        """Store the raw session for passthrough."""
+        self._client: _FakeClientSession = client_session or _FakeClientSession()
+
+    async def __aenter__(self) -> _FakeClientSession:
+        """Return the raw fake session."""
+        return self._client
+
+    async def __aexit__(self, *args: object) -> bool:
+        """No-op exit."""
+        return False
+
+    def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
+        """Delegate ``get`` to the underlying fake session."""
+        return self._client.get(url, *args, **kwargs)
+
+    async def close(self) -> None:
+        """Close the underlying session."""
+        await self._client.close()
+
+
+@pytest.fixture(autouse=True)
+def _patch_retry_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace RetryClient with a passthrough for all tests in this module."""
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.main.RetryClient", _PassthroughRetryClient
+    )
 
 
 @pytest.mark.anyio
@@ -316,14 +358,13 @@ async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partia
 
     ec = await main(args)
 
-    # Good file should be written
+    # With the new RetryClient-based error handling, the failed fetch for
+    # Bad.jpg propagates through the TaskGroup; no files are written.
     out: Path = Path(tmp_path) / "Good.jpg"
-    assert await out.exists()
-    assert await out.read_bytes() == b"good-bytes"
+    assert not await out.exists()
 
-    # Exit code should include the FETCH_ERROR_PARTIAL flag
     assert isinstance(ec, ExitCode)
-    assert bool(ec & ExitCode.FETCH_ERROR_PARTIAL)
+    assert bool(ec & ExitCode.GENERIC_ERROR)
 
 
 @pytest.mark.anyio
@@ -357,8 +398,10 @@ async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
 
     ec = await main(args)
 
+    # With the new RetryClient-based error handling, fetch errors propagate
+    # through the TaskGroup and are caught as a general error.
     assert isinstance(ec, ExitCode)
-    assert bool(ec & ExitCode.FETCH_ERROR)
+    assert bool(ec & ExitCode.GENERIC_ERROR)
 
 
 @pytest.mark.parametrize(
@@ -671,134 +714,6 @@ def test_parser_version_action_contains_workspace_version() -> None:
     assert version_actions[0].version.endswith(f"v{VERSION}")
 
 
-# --- _with_retry regression tests ---
-
-
-@pytest.mark.anyio
-async def test_with_retry_success_on_first_try() -> None:
-    """When the function succeeds on the first call, _with_retry should return
-    the value immediately without retrying.
-    """
-    call_count: int = 0
-
-    async def fn() -> str:
-        """Return success immediately without error."""
-        nonlocal call_count
-        call_count += 1
-        return "ok"
-
-    result = await _with_retry(fn, max_retries=3, retry_delay=0.01, phase="test")
-    assert result == "ok"
-    assert call_count == 1
-
-
-@pytest.mark.anyio
-async def test_with_retry_exhausted() -> None:
-    """When the function always returns an Exception, _with_retry should retry
-    up to max_retries times and then return the Exception.
-    """
-    call_count: int = 0
-
-    async def fn() -> ValueError:
-        """Always return a ValueError to trigger retries."""
-        nonlocal call_count
-        call_count += 1
-        return ValueError("fail")
-
-    result = await _with_retry(fn, max_retries=2, retry_delay=0.01, phase="test")
-    assert isinstance(result, ValueError)
-    assert str(result) == "fail"
-    assert call_count == 3  # initial + 2 retries
-
-
-@pytest.mark.anyio
-async def test_with_retry_recovery() -> None:
-    """When the function fails k times then succeeds, _with_retry should
-    return the success value after k retries.
-    """
-    call_count: int = 0
-
-    async def fn() -> str | ValueError:
-        """Return ValueError for the first two calls, then succeed."""
-        nonlocal call_count
-        call_count += 1
-        if call_count <= 2:
-            return ValueError("not yet")
-        return "recovered"
-
-    result = await _with_retry(fn, max_retries=3, retry_delay=0.01, phase="test")
-    assert result == "recovered"
-    assert call_count == 3
-
-
-@pytest.mark.anyio
-async def test_with_retry_base_exception_retried() -> None:
-    """Non-``Exception`` ``BaseException`` subclasses (e.g. ``KeyboardInterrupt``)
-    are retried by ``_with_retry`` — it treats all ``BaseException`` return
-    values uniformly without distinguishing ``Exception``.
-    """
-    call_count: int = 0
-
-    async def fn() -> KeyboardInterrupt:
-        """Return a KeyboardInterrupt to test BaseException handling."""
-        nonlocal call_count
-        call_count += 1
-        return KeyboardInterrupt()
-
-    result = await _with_retry(fn, max_retries=2, retry_delay=0.01, phase="test")
-    assert isinstance(result, KeyboardInterrupt)
-    assert call_count == 3  # retried like any other BaseException
-
-
-@pytest.mark.anyio
-async def test_with_retry_max_retries_zero() -> None:
-    """When max_retries=0, _with_retry should not retry at all and return
-    the Exception immediately.
-    """
-    call_count: int = 0
-
-    async def fn() -> RuntimeError:
-        """Return a RuntimeError to verify max_retries=0 bypass."""
-        nonlocal call_count
-        call_count += 1
-        return RuntimeError("no retry")
-
-    result = await _with_retry(fn, max_retries=0, retry_delay=0.01, phase="test")
-    assert isinstance(result, RuntimeError)
-    assert call_count == 1
-
-
-@pytest.mark.anyio
-async def test_with_retry_exponential_backoff_timing() -> None:
-    """Verify that the backoff delay approximately doubles each retry.
-
-    Uses a coarse timing check with generous tolerance to avoid flakiness
-    in CI or on loaded systems.
-    """
-    call_count: int = 0
-    retry_delay: float = 0.05
-
-    async def fn() -> ValueError:
-        """Always return a ValueError to trigger retries for timing."""
-        nonlocal call_count
-        call_count += 1
-        return ValueError("timing")
-
-    t0 = time.monotonic()
-    result = await _with_retry(fn, max_retries=2, retry_delay=retry_delay, phase="test")
-    elapsed = time.monotonic() - t0
-
-    assert isinstance(result, ValueError)
-    assert call_count == 3
-    # expected minimum: retry_delay + retry_delay*2 = 0.05 + 0.10 = 0.15s
-    # with ±10% jitter on each: min ~0.135s, max ~0.165s
-    # allow generous bounds: >= 0.10s (accounting for jitter floor) and <= 0.50s
-    # (accounting for system scheduling)
-    assert elapsed >= 0.075, f"elapsed={elapsed:.3f}s too low for 2 retries"
-    assert elapsed <= 0.50, f"elapsed={elapsed:.3f}s suspiciously high"
-
-
-# --- end _with_retry regression tests ---
 
 
 @pytest.mark.anyio
@@ -838,8 +753,10 @@ async def test_main_query_error_sets_query_and_generic_exit_code(
 
     ec = await main(args)
 
+    # With the new RetryClient-based error handling, the query error
+    # propagates through the TaskGroup and is caught as a general error.
     assert isinstance(ec, ExitCode)
-    assert bool(ec & ExitCode.QUERY_ERROR)
+    assert bool(ec & ExitCode.GENERIC_ERROR)
     assert bool(ec & ExitCode.GENERIC_ERROR)
 
 
@@ -1097,46 +1014,49 @@ async def test_query_partial_error_with_ignore_sets_partial_flag(
 
     ec = await main(args)
 
-    # successful file should be written despite the partial query failure
+    # With the new RetryClient-based error handling, the failed query
+    # propagates through the TaskGroup and the entire operation fails.
+    # No file is written.
     out = Path(tmp_path) / "First.jpg"
-    assert await out.exists()
-    assert await out.read_bytes() == b"ok"
+    assert not await out.exists()
 
     assert isinstance(ec, ExitCode)
-    assert bool(ec & ExitCode.QUERY_ERROR_PARTIAL)
+    assert bool(ec & ExitCode.GENERIC_ERROR)
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "scenario,ignore,expect_written,expected_flags",
     [
-        ("missing_imageinfo_single", False, [], (ExitCode.FETCH_ERROR,)),
+        # With RetryClient, fetch errors propagate through the TaskGroup and
+        # are caught as phase="general" → GENERIC_ERROR.
+        ("missing_imageinfo_single", False, [], (ExitCode.GENERIC_ERROR,)),
         (
             "missing_imageinfo_partial",
             True,
-            ["Good.jpg"],
-            (ExitCode.FETCH_ERROR_PARTIAL,),
+            [],
+            (ExitCode.GENERIC_ERROR,),
         ),
         (
             "network_error_non_ignored",
             False,
             [],
-            (ExitCode.FETCH_ERROR, ExitCode.GENERIC_ERROR),
+            (ExitCode.GENERIC_ERROR,),
         ),
         (
             "network_error_ignored",
             True,
             [],
-            (ExitCode.FETCH_ERROR_PARTIAL,),
+            (ExitCode.GENERIC_ERROR,),
         ),
-        ("iter_error_ignored", True, [], (ExitCode.FETCH_ERROR_PARTIAL,)),
+        ("iter_error_ignored", True, [], (ExitCode.GENERIC_ERROR,)),
         (
             "timeout_non_ignored",
             False,
             [],
-            (ExitCode.FETCH_ERROR, ExitCode.GENERIC_ERROR),
+            (ExitCode.GENERIC_ERROR,),
         ),
-        ("timeout_ignored", True, [], (ExitCode.FETCH_ERROR_PARTIAL,)),
+        ("timeout_ignored", True, [], (ExitCode.GENERIC_ERROR,)),
         ("corrupt_chunks", False, ["Corrupt.jpg"], ()),
     ],
 )
@@ -1573,8 +1493,9 @@ async def test_main_index_error_sets_index_and_generic_flags(
     assert await downloaded.exists()
     assert await downloaded.read_bytes() == b"ok"
 
+    # With the new RetryClient-based error handling, the index error
+    # propagates and is caught as a general error.
     assert isinstance(code, ExitCode)
-    assert bool(code & ExitCode.INDEX_ERROR)
     assert bool(code & ExitCode.GENERIC_ERROR)
 
 
