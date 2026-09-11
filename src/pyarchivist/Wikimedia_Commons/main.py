@@ -6,16 +6,15 @@ library-oriented API. Helper utilities and small types used across the flow
 are declared here as well.
 """
 
-from collections.abc import Awaitable, Callable, Collection, Iterable
+from collections.abc import Collection, Iterable
 from html import escape as html_escape
 from itertools import chain
-from random import random as _random
 from re import MULTILINE, compile
 from typing import TypeVar
 from urllib.parse import quote, unquote
 
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
-from anyio import sleep
+from aiohttp_retry import JitterRetry, RetryClient
 from asyncer import SoonValue, asyncify, create_task_group
 from yarl import URL
 
@@ -167,30 +166,23 @@ def _separate_results(
     return successful, errors
 
 
-async def _with_retry[_T](
-    fn: Callable[[], Awaitable[_T | BaseException]],
-    max_retries: int,
-    retry_delay: float,
-    phase: str,
-) -> _T | BaseException:
-    """Execute ``fn`` with exponential backoff + jitter up to ``max_retries``.
+class _WikimediaRetry(JitterRetry):
+    """Exponential retry that reads the Retry-After header from 429 responses."""
 
-    Retries only when ``fn`` returns an ``Exception`` (not
-    ``BaseException``). The delay doubles each retry with ±10% jitter.
-    """
-    attempt = 0
-    while True:
-        result = await fn()
-        if not isinstance(result, BaseException):
-            return result
-        if attempt < max_retries:
-            delay = retry_delay * (2**attempt)
-            delay += delay * 0.1 * (_random() - 0.5)  # ±10 % jitter
-            LOGGER.info("Retrying %s (attempt %d/%d)", phase, attempt + 1, max_retries)
-            await sleep(delay)
-            attempt += 1
-        else:
-            return result
+    def get_timeout(self, attempt: int, response=None) -> float:
+        """Return the delay before the next retry attempt.
+
+        Reads the ``Retry-After`` header from 429 responses when available,
+        falling back to the parent class exponential backoff.
+        """
+        if response is not None and response.status == 429:
+            retry_after = response.headers.get("Retry-After")
+            if retry_after is not None:
+                try:
+                    return max(float(retry_after), self._start_timeout)
+                except ValueError:
+                    pass
+        return super().get_timeout(attempt, response)
 
 
 async def archive(args: Args) -> ArchiveResult:
@@ -211,62 +203,57 @@ async def archive(args: Args) -> ArchiveResult:
     try:
         inputs = tuple(dict.fromkeys(args.inputs))
         async with ClientSession(
-            connector=TCPConnector(limit_per_host=_MAX_CONCURRENT_REQUESTS_PER_HOST),
+            connector=TCPConnector(limit_per_host=1),
             headers={
                 "Accept-Encoding": "gzip",
                 "User-Agent": USER_AGENT,
             },
             timeout=ClientTimeout(total=args.request_timeout),
-        ) as sess:
+        ) as raw_sess:
+            sess = RetryClient(
+                client_session=raw_sess,
+                retry_options=_WikimediaRetry(
+                    attempts=args.max_retries,
+                    start_timeout=args.retry_delay,
+                    max_timeout=30.0,
+                    statuses={429},
+                ),
+                raise_for_status=False,
+            )
             try:
                 LOGGER.info(f"Querying {len(inputs)} files")
 
                 async def query(
                     inputs: Iterable[str],
                 ) -> Iterable[tuple[str, Page]] | BaseException:
-                    """Query the Wikimedia Commons API for the given titles and
-                    return the parsed pages items, or the exception if the query
-                    fails.
-                    """
-                    try:
-                        async with sess.get(
-                            URL.build(
-                                scheme="https",
-                                host="commons.wikimedia.org",
-                                path="/w/api.php",
-                                query={
-                                    "format": "json",
-                                    "action": "query",
-                                    "titles": "|".join(inputs),
-                                    "prop": "imageinfo",
-                                    "iiprop": "extmetadata|url",
-                                },
-                            )
-                        ) as resp:
-                            text = await resp.text()
-                        data = ResponseModel.model_validate_json(text)
-                        return data.query.pages.items()
-                    except BaseException as e:
-                        return e
+                    """Query the Wikimedia Commons API for the given titles.
 
-                # run query batches concurrently using structural concurrency
-                # the ``SoonValue`` objects capture return values that we can
-                # inspect after the task group closes (see Asyncer documentation).
+                    RetryClient handles HTTP retries (429, 5xx) at session level.
+                    """
+                    async with sess.get(
+                        URL.build(
+                            scheme="https",
+                            host="commons.wikimedia.org",
+                            path="/w/api.php",
+                            query={
+                                "format": "json",
+                                "action": "query",
+                                "titles": "|".join(inputs),
+                                "prop": "imageinfo",
+                                "iiprop": "extmetadata|url",
+                            },
+                        )
+                    ) as resp:
+                        text = await resp.text()
+                    data = ResponseModel.model_validate_json(text)
+                    return data.query.pages.items()
+
                 svs: list[SoonValue[Iterable[tuple[str, Page]] | BaseException]] = []
                 async with create_task_group() as tg:
                     for idx in range(0, len(inputs), _QUERY_LIMIT):
                         svs.append(
-                            tg.soonify(_with_retry)(
-                                lambda batch=inputs[idx : idx + _QUERY_LIMIT]: query(
-                                    batch
-                                ),
-                                args.max_retries,
-                                args.retry_delay,
-                                "query",
-                            )
+                            tg.soonify(query)(tuple(inputs[idx : idx + _QUERY_LIMIT]))
                         )
-                # at this point the task group has exited and all queries have
-                # completed; we can safely access ``.value`` on each SoonValue.
                 queries = [sv.value for sv in svs]
                 queries, query_errors = _separate_results(queries, phase="query")
                 all_errors.extend(query_errors)
@@ -274,82 +261,62 @@ async def archive(args: Args) -> ArchiveResult:
                     return ArchiveResult(
                         downloaded=0, skipped=0, errors=tuple(all_errors)
                     )
-                # ``id`` is a builtin, so rename to ``page_id`` for clarity and
-                # to keep static type checkers happy with an explicit variable
-                # name.
                 pages = tuple(
                     {
                         page_id: page for page_id, page in chain.from_iterable(queries)
                     }.values()
                 )
-            except Exception:
-                LOGGER.exception("Error querying")
-                all_errors.append(
-                    ArchiveError(phase="query", title="", message="Error querying")
-                )
-                return ArchiveResult(downloaded=0, skipped=0, errors=tuple(all_errors))
-            try:
+
                 LOGGER.info(f"Fetching {len(pages)} files")
 
-                async def fetch(page: Page) -> tuple[str, str, bool] | BaseException:
-                    """Download the binary content for ``page`` and return a tuple
-                    of ``(filename, index_line, was_skipped)``, or the exception
-                    if the fetch fails.
+                async def fetch(page: Page) -> tuple[str, str, bool]:
+                    """Download the binary content for ``page``.
+
+                    Returns ``(filename, index_line, was_skipped)``.
+                    RetryClient handles HTTP retries (429, 5xx) at session level.
                     """
-                    try:
-                        filename = page.title.split(":", 1)[-1]
-                        # Input validation: reject empty, path separators, or
-                        # dot-directories
-                        if not filename or "/" in filename or filename in (".", ".."):
-                            return ValueError(
-                                f"Invalid filename derived from title: '{page.title}'"
-                            )
-                        if page.imageinfo is None:
-                            raise ValueError(f"Failed to fetch '{filename}'")
-                        dest_path = args.dest
-                        await dest_path.mkdir(parents=True, exist_ok=True)
-                        dest_file = dest_path / filename
-                        # Skip existing files when skip_existing is True
-                        if args.skip_existing and await dest_file.exists():
-                            LOGGER.info("Skipping existing '%s'", filename)
-                            credit = await asyncify(_credit_formatter)(page)
-                            index_line = await asyncify(_index_formatter)(
-                                filename, credit
-                            )
-                            return filename, index_line, True
-                        async with (
-                            sess.get(page.imageinfo[0].url) as resp,
-                            await dest_file.open(mode="wb") as file,
-                        ):
-                            LOGGER.info("Fetching '%s'", filename)
-                            async for chunk in resp.content.iter_any():
-                                await file.write(chunk)
+                    filename = page.title.split(":", 1)[-1]
+                    if not filename or "/" in filename or filename in (".", ".."):
+                        raise ValueError(
+                            f"Invalid filename derived from title: '{page.title}'"
+                        )
+                    if page.imageinfo is None:
+                        raise ValueError(f"Failed to fetch '{filename}'")
+                    dest_path = args.dest
+                    await dest_path.mkdir(parents=True, exist_ok=True)
+                    dest_file = dest_path / filename
+                    if args.skip_existing and await dest_file.exists():
+                        LOGGER.info("Skipping existing '%s'", filename)
                         credit = await asyncify(_credit_formatter)(page)
                         index_line = await asyncify(_index_formatter)(filename, credit)
-                        return filename, index_line, False
-                    except BaseException as e:
-                        return e
+                        return filename, index_line, True
+                    async with sess.get(page.imageinfo[0].url) as resp:
+                        if resp.status >= 400:
+                            raise ValueError(
+                                f"HTTP {resp.status} fetching '{filename}'"
+                            )
+                        content_type = resp.content_type or ""
+                        if not content_type.startswith(
+                            ("image/", "application/octet-stream", "video/", "audio/")
+                        ):
+                            raise ValueError(
+                                f"Unexpected content-type {content_type!r} for '{filename}'"
+                            )
+                        LOGGER.info("Fetching '%s'", filename)
+                        async with await dest_file.open(mode="wb") as file:
+                            async for chunk in resp.content.iter_any():
+                                await file.write(chunk)
+                    credit = await asyncify(_credit_formatter)(page)
+                    index_line = await asyncify(_index_formatter)(filename, credit)
+                    return filename, index_line, False
 
                 if args.progress_callback is not None:
                     args.progress_callback(0, len(pages))
-                # fetch pages concurrently, capturing their return values with
-                # SoonValue so we can access them after the task group exits.
                 fetch_svs: list[SoonValue[tuple[str, str, bool] | BaseException]] = []
                 async with create_task_group() as tg:
                     for page in pages:
-                        fetch_svs.append(
-                            tg.soonify(_with_retry)(
-                                lambda p=page: fetch(p),
-                                args.max_retries,
-                                args.retry_delay,
-                                "fetch",
-                            )
-                        )
+                        fetch_svs.append(tg.soonify(fetch)(page))
                 raw_entries = [sv.value for sv in fetch_svs]
-                raw_entries, fetch_errors = _separate_results(
-                    raw_entries, phase="fetch"
-                )
-                all_errors.extend(fetch_errors)
                 entries: list[tuple[str, str]] = []
                 for filename, index_line, was_skipped in raw_entries:
                     if was_skipped:
@@ -359,22 +326,11 @@ async def archive(args: Args) -> ArchiveResult:
                     entries.append((filename, index_line))
                 if args.progress_callback is not None:
                     args.progress_callback(downloaded, len(pages))
-            except Exception:
-                LOGGER.info("Error fetching")
-                all_errors.append(
-                    ArchiveError(phase="fetch", title="", message="Error fetching")
-                )
-                return ArchiveResult(
-                    downloaded=downloaded,
-                    skipped=skipped,
-                    errors=tuple(all_errors),
-                )
-            try:
+
                 if args.index is None:
                     LOGGER.info("Skipped indexing")
                 else:
                     LOGGER.info(f"Indexing {len(entries)} files")
-
                     idx = args.index
                     await idx.parent.mkdir(parents=True, exist_ok=True)
                     try:
@@ -403,11 +359,8 @@ async def archive(args: Args) -> ArchiveResult:
                         text = "\n\n".join(paragraphs) + "\n"
                         await file.write(text)
                         await file.truncate()
-            except Exception:
-                LOGGER.exception("Error indexing")
-                all_errors.append(
-                    ArchiveError(phase="index", title="", message="Error indexing")
-                )
+            finally:
+                await sess.close()
     except Exception:
         LOGGER.exception("Error")
         all_errors.append(ArchiveError(phase="general", title="", message="Error"))
