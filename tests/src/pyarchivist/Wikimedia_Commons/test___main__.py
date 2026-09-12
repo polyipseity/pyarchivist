@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from pyarchivist.Wikimedia_Commons import __main__ as commons_module_main
-from tests.utils import RunModuleHelper
+from tests.test_utils import RunModuleHelper
 
 """Public symbols exported by this module (none)."""
 __all__ = ()

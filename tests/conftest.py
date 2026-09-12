@@ -10,7 +10,7 @@ import pytest
 __all__ = ()
 
 """Pytest plugin modules loaded for shared fixtures and helpers."""
-pytest_plugins = ("tests.utils",)
+pytest_plugins = ("tests.test_utils",)
 
 
 @pytest.fixture

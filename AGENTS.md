@@ -73,7 +73,7 @@ Adjust the list above to match this submodule; paths below assume this folder is
 - **Document everything.** Ensure modules and exported public symbols include clear module-level and object docstrings. Run `uv run pytest tests/test_docstrings.py` as part of your checks to validate docstring compliance.
 - **Mirror ledger-style test rigor.** Use `self/ledger/tests` as a structural and
   quality reference: AST invariant tests, plugin-backed shared helpers in
-  `tests/utils.py`, mirrored `tests/src/**` layout, and robust async failure-path
+  `tests/test_utils.py`, mirrored `tests/src/**` layout, and robust async failure-path
   assertions.
 
 Validation order for non-trivial changes:
