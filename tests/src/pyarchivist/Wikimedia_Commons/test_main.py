@@ -69,7 +69,6 @@ class _FakeResp:
         self.status: int = 200
         self.content_type: str = "image/jpeg"
 
-
     async def json(self) -> object | None:
         """Return the stored JSON-like payload."""
         # mimic aiohttp.Response.json()
@@ -124,7 +123,9 @@ class _FakeClientSession:
             chunks: list[bytes] = [fb[i : i + 8] for i in range(0, len(fb), 8)]
             return _FakeResp(content_chunks=chunks)
 
-    async def request(self, method: str, url: object, *args: object, **kwargs: object) -> _FakeResp:
+    async def request(
+        self, method: str, url: object, *args: object, **kwargs: object
+    ) -> _FakeResp:
         """Dispatch ``request`` calls (used by RetryClient) to ``get``."""
         if method.upper() == "GET":
             return self.get(url, *args, **kwargs)
@@ -137,7 +138,9 @@ class _FakeClientSession:
 class _PassthroughRetryClient:
     """Bypass RetryClient; return the underlying session directly."""
 
-    def __init__(self, *, client_session: _FakeClientSession | None = None, **_kwargs: object) -> None:
+    def __init__(
+        self, *, client_session: _FakeClientSession | None = None, **_kwargs: object
+    ) -> None:
         """Store the raw session for passthrough."""
         self._client: _FakeClientSession = client_session or _FakeClientSession()
 
@@ -712,8 +715,6 @@ def test_parser_version_action_contains_workspace_version() -> None:
     assert isinstance(version_actions[0], _VersionAction)
     assert version_actions[0].version is not None
     assert version_actions[0].version.endswith(f"v{VERSION}")
-
-
 
 
 @pytest.mark.anyio

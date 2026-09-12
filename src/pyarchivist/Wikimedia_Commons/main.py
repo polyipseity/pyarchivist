@@ -10,7 +10,7 @@ from collections.abc import Collection, Iterable
 from html import escape as html_escape
 from itertools import chain
 from re import MULTILINE, compile
-from typing import TypeVar
+from typing import TypeVar, override
 from urllib.parse import quote, unquote
 
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
@@ -169,6 +169,7 @@ def _separate_results(
 class _WikimediaRetry(JitterRetry):
     """Exponential retry that reads the Retry-After header from 429 responses."""
 
+    @override
     def get_timeout(self, attempt: int, response=None) -> float:
         """Return the delay before the next retry attempt.
 
@@ -312,7 +313,7 @@ async def archive(args: Args) -> ArchiveResult:
 
                 if args.progress_callback is not None:
                     args.progress_callback(0, len(pages))
-                fetch_svs: list[SoonValue[tuple[str, str, bool] | BaseException]] = []
+                fetch_svs: list[SoonValue[tuple[str, str, bool]]] = []
                 async with create_task_group() as tg:
                     for page in pages:
                         fetch_svs.append(tg.soonify(fetch)(page))
