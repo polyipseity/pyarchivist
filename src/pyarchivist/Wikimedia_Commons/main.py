@@ -16,6 +16,7 @@ from urllib.parse import quote, unquote
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from aiohttp_retry import JitterRetry, RetryClient
 from asyncer import SoonValue, asyncify, create_task_group
+from pathvalidate import sanitize_filename
 from yarl import URL
 
 from pyarchivist.meta import LOGGER, OPEN_TEXT_OPTIONS, USER_AGENT
@@ -186,13 +187,20 @@ class _WikimediaRetry(JitterRetry):
         return super().get_timeout(attempt, response)
 
 
-async def archive(args: Args) -> ArchiveResult:
+async def archive(args: Args, *, sanitize_filenames: bool = True) -> ArchiveResult:
     """Primary coroutine implementing the query-fetch-index flow.
 
     Executes the following steps:
     1. Query Wikimedia Commons for page and image metadata for requested inputs.
     2. Fetch image binary content for the discovered pages.
     3. Optionally update a Markdown index file using `_index_formatter`.
+
+    Args:
+        args: archive operation parameters (inputs, dest, index, etc.).
+        sanitize_filenames: when True (default), filenames derived from page
+            titles are sanitized for Windows compatibility using
+            ``pathvalidate.sanitize_filename(platform="windows")``.  Set to
+            False to preserve the original title verbatim.
 
     Returns an ``ArchiveResult`` with download/skip counts and any errors
     encountered during the operation. Does not call ``exit()``.
@@ -277,6 +285,10 @@ async def archive(args: Args) -> ArchiveResult:
                     RetryClient handles HTTP retries (429, 5xx) at session level.
                     """
                     filename = page.title.split(":", 1)[-1]
+                    if sanitize_filenames:
+                        filename = sanitize_filename(
+                            filename, platform="windows", replacement_text="_"
+                        )
                     if not filename or "/" in filename or filename in (".", ".."):
                         raise ValueError(
                             f"Invalid filename derived from title: '{page.title}'"
