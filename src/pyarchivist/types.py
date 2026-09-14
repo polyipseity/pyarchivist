@@ -62,6 +62,8 @@ class Args:
         index: optional index file path (Markdown)
         ignore_individual_errors: if True, continue on individual file errors
         skip_existing: if True, skip files that already exist at the destination
+        sanitize_filenames: if True (default), filenames derived from page titles
+            are sanitized for Windows compatibility using pathvalidate
         max_retries: maximum number of retries for failed operations
         retry_delay: delay in seconds between retries
         request_timeout: timeout in seconds for HTTP requests
@@ -73,6 +75,7 @@ class Args:
     index: Path | None
     ignore_individual_errors: bool
     skip_existing: bool = False
+    sanitize_filenames: bool = True
     max_retries: int = 3
     retry_delay: float = 1.0
     request_timeout: float = 30.0

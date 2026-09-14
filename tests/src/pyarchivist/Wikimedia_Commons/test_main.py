@@ -1557,7 +1557,7 @@ async def test_sanitize_filenames_replaces_quote(
         ignore_individual_errors=False,
     )
 
-    result = await archive(args, sanitize_filenames=True)
+    result = await archive(args)
 
     # sanitized filename should contain underscores, not quotes
     written = [p async for p in Path(tmp_path).iterdir()]
@@ -1601,10 +1601,10 @@ async def test_sanitize_filenames_false_preserves_original(
         dest=Path(tmp_path),
         index=None,
         ignore_individual_errors=False,
+        sanitize_filenames=False,
     )
 
-    # sanitize_filenames defaults to True; explicitly pass False
-    await archive(args, sanitize_filenames=False)
+    await archive(args)
 
     written = [p async for p in Path(tmp_path).iterdir()]
     assert len(written) == 1
@@ -1661,7 +1661,7 @@ async def test_sanitize_filenames_various_illegal_chars(
         ignore_individual_errors=False,
     )
 
-    await archive(args, sanitize_filenames=True)
+    await archive(args)
 
     written = [p async for p in Path(tmp_path).iterdir()]
     assert len(written) == 1
@@ -1706,7 +1706,7 @@ async def test_sanitize_filenames_skip_existing_after_sanitize(
     )
 
     # first run — should download
-    r1 = await archive(args, sanitize_filenames=True)
+    r1 = await archive(args)
     assert r1.downloaded == 1
     assert r1.skipped == 0
 
@@ -1718,6 +1718,6 @@ async def test_sanitize_filenames_skip_existing_after_sanitize(
         ignore_individual_errors=False,
         skip_existing=True,
     )
-    r2 = await archive(args_skip, sanitize_filenames=True)
+    r2 = await archive(args_skip)
     assert r2.downloaded == 0
     assert r2.skipped == 1

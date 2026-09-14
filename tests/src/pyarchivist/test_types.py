@@ -37,6 +37,7 @@ def test_args_fields() -> None:
         "index",
         "ignore_individual_errors",
         "skip_existing",
+        "sanitize_filenames",
         "max_retries",
         "retry_delay",
         "request_timeout",
