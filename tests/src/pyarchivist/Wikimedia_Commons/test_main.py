@@ -1520,6 +1520,26 @@ def test_index_formatter_output_matches_index_pattern(filename: str) -> None:
     assert unquote(match.group(2)) == filename
 
 
+def test_index_formatter_display_overrides_link_text() -> None:
+    """When ``display`` is given it becomes the visible link text."""
+    line = _index_formatter("sanitized.jpg", "credit", display="Original Name.jpg")
+    m = re.search(r"^- \[(.+?)\]\((.+?)\): ", line)
+    assert m is not None
+    label, link = m.groups()
+    assert label == "Original Name.jpg"
+    assert unquote(link) == "sanitized.jpg"
+
+
+def test_index_formatter_display_none_falls_back_to_filename() -> None:
+    """When ``display`` is omitted the filename is used as link text."""
+    line = _index_formatter("file.jpg", "credit")
+    m = re.search(r"^- \[(.+?)\]\((.+?)\): ", line)
+    assert m is not None
+    label, link = m.groups()
+    assert label == "file.jpg"
+    assert unquote(link) == "file.jpg"
+
+
 @pytest.mark.anyio
 async def test_sanitize_filenames_replaces_quote(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
@@ -1721,3 +1741,51 @@ async def test_sanitize_filenames_skip_existing_after_sanitize(
     r2 = await archive(args_skip)
     assert r2.downloaded == 0
     assert r2.skipped == 1
+
+
+@pytest.mark.anyio
+async def test_sanitize_filenames_index_uses_unsanitized_display(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """Index entry display name must be the unsanitized page title."""
+    fake_sess = _FakeClientSession()
+    fake_sess._api_json = {
+        "query": {
+            "pages": {
+                "1": {
+                    "title": 'File:A "quoted" name.jpg',
+                    "imageinfo": [
+                        {
+                            "descriptionurl": "https://commons.wikimedia.org/wiki/",
+                            "url": "https://upload.wikimedia.org/x.jpg",
+                            "extmetadata": {},
+                        }
+                    ],
+                }
+            }
+        }
+    }
+    fake_sess._file_bytes = b"img"
+
+    def _factory(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return the configured fake session for the index-display test."""
+        return fake_sess
+
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main.ClientSession", _factory)
+
+    index_file = Path(tmp_path) / "index.md"
+    args = Args(
+        inputs=('File:A "quoted" name.jpg',),
+        dest=Path(tmp_path),
+        index=index_file,
+        ignore_individual_errors=False,
+    )
+
+    await archive(args)
+
+    # read the index file and verify the display name is unsanitized
+    content = await index_file.read_text()
+    # the unsanitized title part should appear as the link text
+    assert 'A "quoted" name.jpg' in content
+    # the sanitized filename should appear in the URL (percent-encoded)
+    assert "A%20_quoted_%20name.jpg" in content
