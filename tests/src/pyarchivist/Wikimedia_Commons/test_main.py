@@ -28,6 +28,7 @@ from pyarchivist.Wikimedia_Commons.main import (
     _credit_formatter,
     _handle_partial_errors,
     _index_formatter,
+    archive,
 )
 from pyarchivist.Wikimedia_Commons.models import (
     ExtMetadata,
@@ -1517,3 +1518,206 @@ def test_index_formatter_output_matches_index_pattern(filename: str) -> None:
     assert match is not None
     assert match.group(0) == line
     assert unquote(match.group(2)) == filename
+
+
+@pytest.mark.anyio
+async def test_sanitize_filenames_replaces_quote(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A page title containing `"` must be sanitized to `_` when sanitize_filenames=True."""
+    fake_sess = _FakeClientSession()
+    fake_sess._api_json = {
+        "query": {
+            "pages": {
+                "1": {
+                    "title": 'File:File with "quotes".jpg',
+                    "imageinfo": [
+                        {
+                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:File_with_%22quotes%22.jpg",
+                            "url": "https://upload.wikimedia.org/quotes.jpg",
+                            "extmetadata": {},
+                        }
+                    ],
+                }
+            }
+        }
+    }
+    fake_sess._file_bytes = b"img"
+
+    def _factory(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return the configured fake session for the quote-sanitize test."""
+        return fake_sess
+
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main.ClientSession", _factory)
+
+    args = Args(
+        inputs=('File:File with "quotes".jpg',),
+        dest=Path(tmp_path),
+        index=None,
+        ignore_individual_errors=False,
+    )
+
+    result = await archive(args, sanitize_filenames=True)
+
+    # sanitized filename should contain underscores, not quotes
+    written = [p async for p in Path(tmp_path).iterdir()]
+    assert len(written) == 1
+    assert '"' not in written[0].name
+    assert result.downloaded == 1
+
+
+@pytest.mark.anyio
+async def test_sanitize_filenames_false_preserves_original(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """When sanitize_filenames=False the original title-derived filename is used."""
+    fake_sess = _FakeClientSession()
+    fake_sess._api_json = {
+        "query": {
+            "pages": {
+                "1": {
+                    "title": 'File:File with "quotes".jpg',
+                    "imageinfo": [
+                        {
+                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:File_with_%22quotes%22.jpg",
+                            "url": "https://upload.wikimedia.org/quotes.jpg",
+                            "extmetadata": {},
+                        }
+                    ],
+                }
+            }
+        }
+    }
+    fake_sess._file_bytes = b"img"
+
+    def _factory(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return the configured fake session for the no-sanitize test."""
+        return fake_sess
+
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main.ClientSession", _factory)
+
+    args = Args(
+        inputs=('File:File with "quotes".jpg',),
+        dest=Path(tmp_path),
+        index=None,
+        ignore_individual_errors=False,
+    )
+
+    # sanitize_filenames defaults to True; explicitly pass False
+    await archive(args, sanitize_filenames=False)
+
+    written = [p async for p in Path(tmp_path).iterdir()]
+    assert len(written) == 1
+    # the original filename (with quotes) should be preserved on disk
+    assert '"' in written[0].name
+
+
+@pytest.mark.parametrize(
+    "title,expected_fragment",
+    [
+        ("File:Asterisk*.jpg", "Asterisk_.jpg"),
+        ("File:Question?.jpg", "Question_.jpg"),
+        ("File:Angle<>.jpg", "Angle__.jpg"),
+        ("File:Pipe|.jpg", "Pipe_.jpg"),
+    ],
+)
+@pytest.mark.anyio
+async def test_sanitize_filenames_various_illegal_chars(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: PathLike[str],
+    title: str,
+    expected_fragment: str,
+) -> None:
+    """Illegal characters `* ? < > |` are each replaced by `_`."""
+    fake_sess = _FakeClientSession()
+    fake_sess._api_json = {
+        "query": {
+            "pages": {
+                "1": {
+                    "title": title,
+                    "imageinfo": [
+                        {
+                            "descriptionurl": "https://commons.wikimedia.org/wiki/",
+                            "url": "https://upload.wikimedia.org/x.jpg",
+                            "extmetadata": {},
+                        }
+                    ],
+                }
+            }
+        }
+    }
+    fake_sess._file_bytes = b"x"
+
+    def _factory(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return the configured fake session for the illegal-chars test."""
+        return fake_sess
+
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main.ClientSession", _factory)
+
+    args = Args(
+        inputs=(title,),
+        dest=Path(tmp_path),
+        index=None,
+        ignore_individual_errors=False,
+    )
+
+    await archive(args, sanitize_filenames=True)
+
+    written = [p async for p in Path(tmp_path).iterdir()]
+    assert len(written) == 1
+    assert written[0].name == expected_fragment
+
+
+@pytest.mark.anyio
+async def test_sanitize_filenames_skip_existing_after_sanitize(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """Running twice with skip_existing=True should skip after sanitization changes the name."""
+    fake_sess = _FakeClientSession()
+    fake_sess._api_json = {
+        "query": {
+            "pages": {
+                "1": {
+                    "title": "File:A?B.jpg",
+                    "imageinfo": [
+                        {
+                            "descriptionurl": "https://commons.wikimedia.org/wiki/",
+                            "url": "https://upload.wikimedia.org/ab.jpg",
+                            "extmetadata": {},
+                        }
+                    ],
+                }
+            }
+        }
+    }
+    fake_sess._file_bytes = b"data"
+
+    def _factory(*_a: object, **_k: object) -> _FakeClientSession:
+        """Return the configured fake session for the skip-existing test."""
+        return fake_sess
+
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main.ClientSession", _factory)
+
+    args = Args(
+        inputs=("File:A?B.jpg",),
+        dest=Path(tmp_path),
+        index=None,
+        ignore_individual_errors=False,
+    )
+
+    # first run — should download
+    r1 = await archive(args, sanitize_filenames=True)
+    assert r1.downloaded == 1
+    assert r1.skipped == 0
+
+    # second run with skip_existing — should skip
+    args_skip = Args(
+        inputs=("File:A?B.jpg",),
+        dest=Path(tmp_path),
+        index=None,
+        ignore_individual_errors=False,
+        skip_existing=True,
+    )
+    r2 = await archive(args_skip, sanitize_filenames=True)
+    assert r2.downloaded == 0
+    assert r2.skipped == 1
