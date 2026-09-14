@@ -81,15 +81,16 @@ def _handle_partial_errors(
     )
 
 
-def _index_formatter(filename: str, credit: str):
+def _index_formatter(filename: str, credit: str, *, display: str | None = None):
     """Format a Markdown index line for a file and its credit string.
 
-    The filename is escaped for Markdown compatibility and URL-escaped for
-    the link target. The returned string is suitable for appending to an
-    `index.md` paragraph handled by the indexing logic.
+    *filename* is URL-escaped for the link target.  *display* (when given)
+    is used as the visible link text; when omitted the *filename* is used
+    instead.  The returned string is suitable for appending to an
+    ``index.md`` paragraph handled by the indexing logic.
     """
 
-    escaped = filename.replace("\\", "\\\\").replace("]", "\\]")
+    escaped = (display or filename).replace("\\", "\\\\").replace("]", "\\]")
     return f"- [{escaped}]({quote(filename, safe=_PERCENT_ESCAPE_SAFE)}): {credit}"
 
 
@@ -271,13 +272,14 @@ async def archive(args: Args) -> ArchiveResult:
 
                 LOGGER.info(f"Fetching {len(pages)} files")
 
-                async def fetch(page: Page) -> tuple[str, str, bool]:
+                async def fetch(page: Page) -> tuple[str, str, str, bool]:
                     """Download the binary content for ``page``.
 
-                    Returns ``(filename, index_line, was_skipped)``.
+                    Returns ``(page_title, filename, index_line, was_skipped)``.
                     RetryClient handles HTTP retries (429, 5xx) at session level.
                     """
-                    filename = page.title.split(":", 1)[-1]
+                    page_display = page.title.split(":", 1)[-1]
+                    filename = page_display
                     if args.sanitize_filenames:
                         filename = sanitize_filename(
                             filename, platform="windows", replacement_text="_"
@@ -294,8 +296,10 @@ async def archive(args: Args) -> ArchiveResult:
                     if args.skip_existing and await dest_file.exists():
                         LOGGER.info("Skipping existing '%s'", filename)
                         credit = await asyncify(_credit_formatter)(page)
-                        index_line = await asyncify(_index_formatter)(filename, credit)
-                        return filename, index_line, True
+                        index_line = await asyncify(_index_formatter)(
+                            filename, credit, display=page_display
+                        )
+                        return page_display, filename, index_line, True
                     async with sess.get(page.imageinfo[0].url) as resp:
                         if resp.status >= 400:
                             raise ValueError(
@@ -313,23 +317,25 @@ async def archive(args: Args) -> ArchiveResult:
                             async for chunk in resp.content.iter_any():
                                 await file.write(chunk)
                     credit = await asyncify(_credit_formatter)(page)
-                    index_line = await asyncify(_index_formatter)(filename, credit)
-                    return filename, index_line, False
+                    index_line = await asyncify(_index_formatter)(
+                        filename, credit, display=page_display
+                    )
+                    return page_display, filename, index_line, False
 
                 if args.progress_callback is not None:
                     args.progress_callback(0, len(pages))
-                fetch_svs: list[SoonValue[tuple[str, str, bool]]] = []
+                fetch_svs: list[SoonValue[tuple[str, str, str, bool]]] = []
                 async with create_task_group() as tg:
                     for page in pages:
                         fetch_svs.append(tg.soonify(fetch)(page))
                 raw_entries = [sv.value for sv in fetch_svs]
-                entries: list[tuple[str, str]] = []
-                for filename, index_line, was_skipped in raw_entries:
+                entries: list[tuple[str, str, str]] = []
+                for page_title, filename, index_line, was_skipped in raw_entries:
                     if was_skipped:
                         skipped += 1
                     else:
                         downloaded += 1
-                    entries.append((filename, index_line))
+                    entries.append((page_title, filename, index_line))
                 if args.progress_callback is not None:
                     args.progress_callback(downloaded, len(pages))
 
@@ -354,8 +360,8 @@ async def archive(args: Args) -> ArchiveResult:
                             unquote(match[2]): match[0]
                             for match in _INDEX_FORMAT_PATTERN.finditer(paragraphs[-1])
                         }
-                        for filename, entry in entries:
-                            index[filename] = entry
+                        for page_title, _filename, entry in entries:
+                            index[page_title] = entry
                         paragraphs[-1] = "\n".join(
                             value
                             for _, value in sorted(
