@@ -54,7 +54,7 @@ AUTHORS = (
 """Package display name."""
 NAME = "pyarchivist"
 """Package version (keep in sync with pyproject.toml)."""
-VERSION = "4.2.0"
+VERSION = "4.2.1"
 
 """Package-level logger."""
 LOGGER = getLogger(NAME)
