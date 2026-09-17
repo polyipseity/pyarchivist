@@ -61,6 +61,7 @@ class _ParserNamespace(Protocol):
     index: Path | None
     inputs: list[str]
     ignore_individual_errors: bool
+    trust_env: bool
 
 
 def parser(parent: Callable[..., ArgumentParser] | None = None):
@@ -108,6 +109,19 @@ def parser(parent: Callable[..., ArgumentParser] | None = None):
         dest="ignore_individual_errors",
     )
     parser.add_argument(
+        "--trust-env",
+        action="store_true",
+        default=True,
+        help="honour HTTPS_PROXY/HTTP_PROXY env vars (default: true)",
+        dest="trust_env",
+    )
+    parser.add_argument(
+        "--no-trust-env",
+        action="store_false",
+        dest="trust_env",
+        help="ignore HTTPS_PROXY/HTTP_PROXY env vars",
+    )
+    parser.add_argument(
         "inputs",
         action="store",
         nargs=ONE_OR_MORE,
@@ -125,6 +139,7 @@ def parser(parent: Callable[..., ArgumentParser] | None = None):
                 dest=args.dest,
                 index=args.index,
                 ignore_individual_errors=args.ignore_individual_errors,
+                trust_env=args.trust_env,
             )
         )
 

@@ -212,6 +212,7 @@ async def archive(args: Args) -> ArchiveResult:
                 "User-Agent": USER_AGENT,
             },
             timeout=ClientTimeout(total=args.request_timeout),
+            trust_env=args.trust_env,
         ) as raw_sess:
             sess = RetryClient(
                 client_session=raw_sess,

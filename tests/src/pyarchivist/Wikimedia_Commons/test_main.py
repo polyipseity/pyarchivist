@@ -1433,6 +1433,99 @@ async def test_parser_invoke_builds_args_and_calls_main(
     assert args.ignore_individual_errors is True
     assert args.dest == tmp_root
     assert args.index == tmp_root / "index.md"
+    assert args.trust_env is True
+
+
+@pytest.mark.anyio
+async def test_trust_env_passed_to_client_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """Verify trust_env=True is forwarded to the ClientSession constructor."""
+    captured_kwargs: dict[str, object] = {}
+
+    class CapturingClientSession:
+        """Fake ClientSession that records keyword arguments."""
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            """Capture all keyword arguments for assertion."""
+            captured_kwargs.update(kwargs)
+
+        async def __aenter__(self) -> "CapturingClientSession":
+            """Enter async context (no-op)."""
+            return self
+
+        async def __aexit__(self, *args: object) -> bool:
+            """Exit async context (no-op)."""
+            return False
+
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", CapturingClientSession
+    )
+
+    args = Args(
+        inputs=("File:Trust.jpg",),
+        dest=Path(tmp_path),
+        index=None,
+        ignore_individual_errors=False,
+        trust_env=True,
+    )
+
+    await archive(args)
+
+    assert captured_kwargs.get("trust_env") is True
+
+
+@pytest.mark.anyio
+async def test_trust_env_false_passed_to_client_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """Verify trust_env=False is forwarded to the ClientSession constructor."""
+    captured_kwargs: dict[str, object] = {}
+
+    class CapturingClientSession:
+        """Fake ClientSession that records keyword arguments."""
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            """Capture all keyword arguments for assertion."""
+            captured_kwargs.update(kwargs)
+
+        async def __aenter__(self) -> "CapturingClientSession":
+            """Enter async context (no-op)."""
+            return self
+
+        async def __aexit__(self, *args: object) -> bool:
+            """Exit async context (no-op)."""
+            return False
+
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.main.ClientSession", CapturingClientSession
+    )
+
+    args = Args(
+        inputs=("File:NoTrust.jpg",),
+        dest=Path(tmp_path),
+        index=None,
+        ignore_individual_errors=False,
+        trust_env=False,
+    )
+
+    await archive(args)
+
+    assert captured_kwargs.get("trust_env") is False
+
+
+def test_parser_trust_env_default(tmp_path: PathLike[str]) -> None:
+    """Parser default for trust_env should be True."""
+    p = parser()
+    ns = p.parse_args(["-d", fspath(tmp_path), "File:X.jpg"])
+    assert ns.trust_env is True
+
+
+def test_parser_no_trust_env_flag(tmp_path: PathLike[str]) -> None:
+    """Parser --no-trust-env flag should set trust_env to False."""
+    p = parser()
+    ns = p.parse_args(["-d", fspath(tmp_path), "--no-trust-env", "File:X.jpg"])
+    assert ns.trust_env is False
 
 
 @pytest.mark.anyio
