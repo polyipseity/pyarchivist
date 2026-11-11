@@ -182,6 +182,52 @@ async def test_query_bisect_disabled_reports_one_batch_error(
 
 
 @pytest.mark.anyio
+async def test_query_transport_failure_is_not_bisected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A dropped connection reports the batch once instead of fanning out."""
+    session = _FakeClientSession(
+        {"File:A.jpg": _page("File:A.jpg"), "File:B.jpg": _page("File:B.jpg")}
+    )
+    session.api_error = ClientConnectionError("connection lost")
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(
+            inputs=("File:A.jpg", "File:B.jpg"),
+            dest=Path(tmp_path),
+            index=None,
+            max_retries=1,
+            retry_delay=0,
+        )
+    )
+
+    assert [error.phase for error in result.errors] == ["query"]
+    assert result.errors[0].title == "File:A.jpg, File:B.jpg"
+    assert len(session.query_urls) == 1
+
+
+@pytest.mark.anyio
+async def test_query_server_error_is_not_bisected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A 5xx answer is reported once; halving it cannot isolate a title."""
+    session = _FakeClientSession(
+        {"File:A.jpg": _page("File:A.jpg"), "File:B.jpg": _page("File:B.jpg")}
+    )
+    session.api_status = 503
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(inputs=("File:A.jpg", "File:B.jpg"), dest=Path(tmp_path), index=None)
+    )
+
+    assert [error.phase for error in result.errors] == ["query"]
+    assert result.errors[0].title == "File:A.jpg, File:B.jpg"
+    assert len(session.query_urls) == 1
+
+
+@pytest.mark.anyio
 async def test_client_session_timeout_and_connector_config(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:

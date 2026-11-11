@@ -51,6 +51,29 @@ _WHITESPACE_PATTERN = compile(r"\s+")
 _INDEX_FORMAT_PATTERN = compile(r"^- \[(.+?(?<!\\))]\((.+?(?<!\\))\): (.+)$", MULTILINE)
 
 
+class _QueryHTTPError(ValueError):
+    """Query failure carrying the HTTP status that caused it."""
+
+    status: int
+
+    def __init__(self, status: int, message: str) -> None:
+        """Store the status alongside the usual exception message."""
+        super().__init__(message)
+        self.status = status
+
+
+def _fails_whole_batch(exc: BaseException) -> bool:
+    """Return whether splitting the batch would only repeat the same failure.
+
+    A dropped connection, a timeout or a server error answers every smaller
+    batch the same way, so bisecting an outage turns one failed request into
+    roughly twice as many.
+    """
+    if isinstance(exc, _QueryHTTPError):
+        return exc.status >= 500
+    return isinstance(exc, (OSError, ClientConnectionError, ClientPayloadError))
+
+
 async def _query(
     sess: RetryClient, inputs: Sequence[str]
 ) -> Iterable[tuple[str, Page]]:
@@ -75,7 +98,9 @@ async def _query(
         )
     ) as resp:
         if resp.status >= 400:
-            raise ValueError(f"HTTP {resp.status} querying {len(inputs)} titles")
+            raise _QueryHTTPError(
+                resp.status, f"HTTP {resp.status} querying {len(inputs)} titles"
+            )
         text = await resp.text()
     return ResponseModel.model_validate_json(text).query.pages.items()
 
@@ -88,12 +113,13 @@ async def _query_with_bisect(
     A failed batch reports one error for every title in it; splitting until each
     failing title stands alone keeps one bad input from failing its
     batch-mates. Failures are rare, so halving sequentially is cheaper than the
-    machinery needed to do it concurrently.
+    machinery needed to do it concurrently. Failures that would repeat at any
+    batch size are reported without splitting.
     """
     try:
         return list(await _query(sess, inputs)), []
     except Exception as exc:
-        if not bisect or len(inputs) < 2:
+        if not bisect or len(inputs) < 2 or _fails_whole_batch(exc):
             return [], [
                 ArchiveError(phase="query", title=", ".join(inputs), message=str(exc))
             ]

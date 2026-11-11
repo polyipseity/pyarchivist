@@ -80,6 +80,7 @@ class _FakeClientSession:
         self.failing_titles: set[str] = set()
         self.api_status = 200
         self.api_text: str | None = None
+        self.api_error: Exception | None = None
         self.file_bytes = b""
         self.content_type = "image/jpeg"
         self.status = 200
@@ -124,6 +125,8 @@ class _FakeClientSession:
         self.query_urls.append(str(url))
         parsed = url if isinstance(url, URL) else URL(str(url))
         titles = parsed.query["titles"]
+        if self.api_error is not None:
+            raise self.api_error
         if any(title in titles for title in self.failing_titles):
             raise RuntimeError("api failure")
         if self.api_text is not None:
