@@ -35,13 +35,13 @@ def test_args_fields() -> None:
         "inputs",
         "dest",
         "index",
-        "ignore_individual_errors",
         "skip_existing",
         "sanitize_filenames",
         "trust_env",
         "max_retries",
         "retry_delay",
         "request_timeout",
-        "progress_callback",
+        "fail_fast",
+        "bisect_queries",
     }
     assert fields == expected

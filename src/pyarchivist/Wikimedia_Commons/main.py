@@ -83,43 +83,6 @@ async def _query(
     return ResponseModel.model_validate_json(text).query.pages.items()
 
 
-def _handle_partial_errors(
-    results: Collection[_T | BaseException],
-    *,
-    ignore_individual_errors: bool,
-    error_message: str = "Error",
-) -> tuple[bool, Collection[_T]]:
-    """Inspect a collection of results and propagate or aggregate errors.
-
-    The `results` iterable may contain successful values or exception
-    instances (when `gather(..., return_exceptions=True)` was used). This
-    helper separates exceptions from values, optionally logs/raises grouped
-    exceptions and returns a tuple `(error_flag, successful_results)` where
-    `error_flag` is True when any exceptions were encountered and swallowed
-    due to `ignore_individual_errors=True`.
-    """
-
-    error = False
-    base_exceptions = tuple(
-        query for query in results if isinstance(query, BaseException)
-    )
-    exceptions = tuple(exc for exc in base_exceptions if isinstance(exc, Exception))
-    if len(exceptions) < len(base_exceptions):
-        raise BaseExceptionGroup(error_message, base_exceptions)
-    if exceptions:
-        exception_group = ExceptionGroup(error_message, exceptions)
-        if not ignore_individual_errors:
-            raise exception_group
-        try:
-            raise exception_group
-        except ExceptionGroup:
-            LOGGER.exception(error_message)
-            error = True
-    return error, tuple(
-        result for result in results if not isinstance(result, BaseException)
-    )
-
-
 def _index_formatter(filename: str, credit: str, *, display: str | None = None):
     """Format a Markdown index line for a file and its credit string.
 

@@ -242,7 +242,6 @@ async def test_top_level_parser_invoke_delegates_to_wikimedia_main(
             "Wikimedia_Commons",
             "-d",
             fspath(tmp_path),
-            "--ignore-individual-errors",
             "File:A.jpg",
             "File:B.jpg",
         ]
@@ -254,5 +253,4 @@ async def test_top_level_parser_invoke_delegates_to_wikimedia_main(
     args = captured["args"]
     assert isinstance(args, Args)
     assert args.inputs == ("File:A.jpg", "File:B.jpg")
-    assert args.ignore_individual_errors is True
     assert isinstance(args.dest, Path)

@@ -27,7 +27,6 @@ from pyarchivist.Wikimedia_Commons.main import (
     _INDEX_FORMAT_PATTERN,
     _PERCENT_ESCAPE_SAFE,
     _credit_formatter,
-    _handle_partial_errors,
     _index_formatter,
     archive,
 )
@@ -221,7 +220,6 @@ async def test_query_and_fetch_writes_file(
         inputs=("File:Example.jpg",),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=False,
     )
 
     await main(args)
@@ -294,7 +292,6 @@ async def test_indexing_updates_index_file(
         inputs=("File:Zed.jpg",),
         dest=Path(tmp_path),
         index=Path(index_path),
-        ignore_individual_errors=False,
     )
 
     await main(args)
@@ -357,7 +354,6 @@ async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partia
         inputs=("File:Good.jpg", "File:Bad.jpg"),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=True,
         max_retries=0,
     )
 
@@ -397,7 +393,6 @@ async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
         inputs=("File:Bad.jpg",),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=False,
         max_retries=0,
     )
 
@@ -496,100 +491,7 @@ def test_parser_produces_typed_namespace(tmp_path: PathLike[str]) -> None:
     # argparse should have converted dest to an anyio.Path and set defaults
     assert isinstance(ns.dest, Path)
     assert ns.index is None
-    assert ns.ignore_individual_errors is False
     assert ns.inputs == ["File:Foo.jpg"]
-
-
-def test_handle_partial_errors_behaviour() -> None:
-    """Verify `_handle_partial_errors` swallows exceptions when configured."""
-    # mixed successful result + an Exception should be swallowed when ignoring
-    results = [ValueError("x"), "ok"]
-    flag, vals = _handle_partial_errors(
-        results, ignore_individual_errors=True, error_message="err"
-    )
-    assert flag is True
-    assert vals == ("ok",)
-
-    # presence of a non-Exception BaseException should raise BaseExceptionGroup
-    with pytest.raises(BaseExceptionGroup):
-        _handle_partial_errors(
-            [ValueError("x"), KeyboardInterrupt()], ignore_individual_errors=True
-        )
-
-
-def test_handle_partial_errors_no_exceptions_returns_values() -> None:
-    """When no exceptions are present `_handle_partial_errors` should return values."""
-    results = [1, 2, 3]
-    flag, vals = _handle_partial_errors(results, ignore_individual_errors=False)
-    assert flag is False
-    assert vals == tuple(results)
-
-
-def test_handle_partial_errors_raises_when_not_ignoring() -> None:
-    """If ignore_individual_errors is False, exceptions should propagate."""
-    # when exceptions are present and not ignored an ExceptionGroup is raised
-    with pytest.raises(ExceptionGroup):
-        _handle_partial_errors(
-            [ValueError("a"), ValueError("b")], ignore_individual_errors=False
-        )
-
-
-# Property-based tests for _handle_partial_errors
-@given(
-    items=st.lists(
-        st.sampled_from([KeyboardInterrupt(), SystemExit()]),
-        min_size=1,
-        max_size=30,
-    ),
-)
-def test_handle_partial_errors_raises_on_non_exception_base(
-    items: list[BaseException],
-) -> None:
-    """If a non-Exception BaseException (e.g. KeyboardInterrupt) is present the
-    helper must raise a BaseExceptionGroup regardless of the ignore flag.
-    """
-    with pytest.raises(BaseExceptionGroup):
-        _handle_partial_errors(items, ignore_individual_errors=True)
-
-
-@given(
-    # ensure generated lists always contain at least one Exception instance
-    # (avoid .filter(...) which can cause many rejected examples)
-    items=st.tuples(
-        st.lists(
-            st.one_of(
-                st.integers(),
-                st.text(),
-                st.builds(ValueError, st.text()),
-                st.builds(OSError, st.text()),
-            ),
-            min_size=0,
-            max_size=29,
-        ),
-        st.one_of(
-            st.builds(ValueError, st.text()),
-            st.builds(OSError, st.text()),
-        ),
-    ).map(lambda t: t[0] + [t[1]]),
-)
-def test_handle_partial_errors_swallow_exceptions_and_return_values(
-    items: list[int | str | Exception],
-) -> None:
-    """When only Exception-derived exceptions are present and
-    `ignore_individual_errors=True`, the function should return (True, values)
-    containing only the successful (non-exception) results in order.
-    """
-    # derive expected non-exception values
-    expected = tuple(x for x in items if not isinstance(x, BaseException))
-
-    flag, vals = _handle_partial_errors(items, ignore_individual_errors=True)
-
-    assert flag is True
-    assert vals == expected
-
-    # when not ignoring, the same input must raise an ExceptionGroup
-    with pytest.raises(ExceptionGroup):
-        _handle_partial_errors(items, ignore_individual_errors=False)
 
 
 def test_credit_formatter_unknown_and_license_url_variants() -> None:
@@ -750,7 +652,6 @@ async def test_main_query_error_sets_query_and_generic_exit_code(
         inputs=("File:Broken.jpg",),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=False,
         max_retries=0,
     )
 
@@ -802,7 +703,6 @@ async def test_main_deduplicates_inputs(
         inputs=("File:Single.jpg", "File:Single.jpg"),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=False,
     )
 
     await main(args)
@@ -853,7 +753,6 @@ async def test_index_file_created_when_missing(
         inputs=("File:NewIndex.jpg",),
         dest=Path(tmp_path),
         index=Path(index_path),
-        ignore_individual_errors=False,
     )
 
     await main(args)
@@ -941,7 +840,6 @@ async def test_query_batching_respects_query_limit(
         inputs=("File:First.jpg", "File:Second.jpg"),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=False,
     )
 
     await main(args)
@@ -1012,7 +910,6 @@ async def test_query_partial_error_with_ignore_sets_partial_flag(
         inputs=("File:First.jpg", "File:Second.jpg"),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=True,
         max_retries=0,
     )
 
@@ -1319,7 +1216,6 @@ async def test_fetch_error_variants(
         inputs=inputs,
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=ignore,
         max_retries=0,
     )
 
@@ -1382,7 +1278,6 @@ async def test_indexing_merges_percent_encoded_existing_entry(
         inputs=("File:a]b",),
         dest=Path(tmp_path),
         index=Path(index_path),
-        ignore_individual_errors=False,
     )
 
     await main(args)
@@ -1432,7 +1327,6 @@ async def test_parser_invoke_builds_args_and_calls_main(
     args = captured["args"]
     assert isinstance(args, Args)
     assert args.inputs == ("File:One.jpg", "File:Two.jpg")
-    assert args.ignore_individual_errors is True
     assert args.dest == tmp_root
     assert args.index == tmp_root / "index.md"
     assert args.trust_env is True
@@ -1468,7 +1362,6 @@ async def test_trust_env_passed_to_client_session(
         inputs=("File:Trust.jpg",),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=False,
         trust_env=True,
     )
 
@@ -1507,7 +1400,6 @@ async def test_trust_env_false_passed_to_client_session(
         inputs=("File:NoTrust.jpg",),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=False,
         trust_env=False,
     )
 
@@ -1581,7 +1473,6 @@ async def test_main_index_error_sets_index_and_generic_flags(
         inputs=("File:IndexFail.jpg",),
         dest=Path(tmp_path),
         index=index_path,
-        ignore_individual_errors=False,
     )
 
     code = await main(args)
@@ -1669,7 +1560,6 @@ async def test_sanitize_filenames_replaces_quote(
         inputs=('File:File with "quotes".jpg',),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=False,
     )
 
     result = await archive(args)
@@ -1715,7 +1605,6 @@ async def test_sanitize_filenames_false_preserves_original(
         inputs=('File:File with "quotes".jpg',),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=False,
         sanitize_filenames=False,
     )
 
@@ -1773,7 +1662,6 @@ async def test_sanitize_filenames_various_illegal_chars(
         inputs=(title,),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=False,
     )
 
     await archive(args)
@@ -1817,7 +1705,6 @@ async def test_sanitize_filenames_skip_existing_after_sanitize(
         inputs=("File:A?B.jpg",),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=False,
     )
 
     # first run — should download
@@ -1830,7 +1717,6 @@ async def test_sanitize_filenames_skip_existing_after_sanitize(
         inputs=("File:A?B.jpg",),
         dest=Path(tmp_path),
         index=None,
-        ignore_individual_errors=False,
         skip_existing=True,
     )
     r2 = await archive(args_skip)
@@ -1873,7 +1759,6 @@ async def test_sanitize_filenames_index_uses_unsanitized_display(
         inputs=('File:A "quoted" name.jpg',),
         dest=Path(tmp_path),
         index=index_file,
-        ignore_individual_errors=False,
     )
 
     await archive(args)
