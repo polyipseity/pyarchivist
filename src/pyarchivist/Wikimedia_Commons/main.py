@@ -343,10 +343,13 @@ async def _fetch_one(
 async def _update_index(index: Path, entries: Sequence[tuple[str, str]]) -> None:
     """Merge *entries* into the last paragraph of *index*, writing atomically.
 
-    Entries are keyed by the on-disk filename because that is what an existing
-    line encodes in its link target; keying by the display title would append a
-    second line for a file that sanitization renamed. Rewriting through a sibling
-    temp file keeps the index intact if the process dies mid-write.
+    Entries are keyed by the case-folded on-disk filename because that is what an
+    existing line encodes in its link target; keying by the display title would
+    append a second line for a file that sanitization renamed, and a case-only
+    variant of the same name would add one too. Lines in the last paragraph that
+    are not entries stay where they are, in their original order. Rewriting
+    through a sibling temp file keeps the index intact if the process dies
+    mid-write.
     """
     await index.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -357,14 +360,16 @@ async def _update_index(index: Path, entries: Sequence[tuple[str, str]]) -> None
     except FileNotFoundError:
         text = ""
     paragraphs = text.strip().split("\n\n")
-    merged = {
-        unquote(match[2]): match[0]
-        for match in _INDEX_FORMAT_PATTERN.finditer(paragraphs[-1])
-    }
-    merged.update(entries)
-    paragraphs[-1] = "\n".join(
-        line for _, line in sorted(merged.items(), key=lambda item: item[0])
-    )
+    by_name: dict[str, str] = {}
+    kept: list[str] = []
+    for line in paragraphs[-1].splitlines():
+        match = _INDEX_FORMAT_PATTERN.match(line)
+        if match is None:
+            kept.append(line)
+        else:
+            by_name[unquote(match[2]).casefold()] = match[0]
+    by_name.update((filename.casefold(), line) for filename, line in entries)
+    paragraphs[-1] = "\n".join([*kept, *(line for _, line in sorted(by_name.items()))])
     temporary = index.with_name(f".{index.name}.tmp")
     try:
         await temporary.write_text("\n\n".join(paragraphs) + "\n", **OPEN_TEXT_OPTIONS)

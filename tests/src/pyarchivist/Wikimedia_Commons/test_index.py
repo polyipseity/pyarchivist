@@ -159,6 +159,54 @@ async def test_index_write_failure_removes_temp_file(
 
 
 @pytest.mark.anyio
+async def test_index_merge_folds_case_of_existing_lines(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A case-variant title replaces the old line instead of adding one."""
+    session = _FakeClientSession({"File:ab.jpg": _page("File:ab.jpg")})
+    session.file_bytes = b"data"
+    _patch_client(monkeypatch, session)
+
+    index_path = Path(tmp_path) / "index.md"
+    await index_path.write_text("- [AB.jpg](AB.jpg): old credit\n", encoding="utf-8")
+
+    await archive(
+        Args(
+            inputs=("File:ab.jpg",),
+            dest=Path(tmp_path),
+            index=index_path,
+            skip_existing=False,
+        )
+    )
+
+    lines = (await index_path.read_text(encoding="utf-8")).splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith("- [ab.jpg](ab.jpg): ")
+
+
+@pytest.mark.anyio
+async def test_index_keeps_non_entry_lines_in_last_paragraph(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """Prose in the last paragraph survives an index update."""
+    session = _FakeClientSession({"File:B.jpg": _page("File:B.jpg")})
+    session.file_bytes = b"data"
+    _patch_client(monkeypatch, session)
+
+    index_path = Path(tmp_path) / "index.md"
+    await index_path.write_text(
+        "Header\n\nnote above the list\n- [A.jpg](A.jpg): old\n", encoding="utf-8"
+    )
+
+    await archive(Args(inputs=("File:B.jpg",), dest=Path(tmp_path), index=index_path))
+
+    lines = (await index_path.read_text(encoding="utf-8")).splitlines()
+    assert lines[0] == "Header"
+    assert "note above the list" in lines
+    assert sum(line.startswith("- [") for line in lines) == 2
+
+
+@pytest.mark.anyio
 async def test_index_file_created_when_missing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
@@ -203,7 +251,7 @@ async def test_indexing_updates_index_file(
     initial_index: str,
     expected_lines: list[str],
 ) -> None:
-    """Indexing updates the last paragraph and keeps earlier paragraphs."""
+    """Indexing rewrites the last paragraph and keeps the text around it."""
     session = _FakeClientSession({"File:Zed.jpg": _page("File:Zed.jpg")})
     session.file_bytes = b"file-contents"
     _patch_client(monkeypatch, session)
@@ -213,13 +261,11 @@ async def test_indexing_updates_index_file(
 
     await archive(Args(inputs=("File:Zed.jpg",), dest=Path(tmp_path), index=index_path))
 
-    text = await index_path.read_text(encoding="utf-8")
-    paragraphs = text.strip().split("\n\n")
-    if "- [" in initial_index:
-        assert paragraphs[0].startswith("Header")
-        assert paragraphs[-1].splitlines() == sorted(expected_lines)
-    else:
-        assert paragraphs == expected_lines
+    lines = (await index_path.read_text(encoding="utf-8")).splitlines()
+    assert "Header" in lines
+    for line in expected_lines:
+        assert lines.count(line) == 1
+    assert sum(line.startswith("- [") for line in lines) == len(expected_lines)
 
 
 @pytest.mark.anyio
