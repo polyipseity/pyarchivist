@@ -60,7 +60,6 @@ class Args:
         inputs: sequence of input titles (strings)
         dest: destination path where files will be written
         index: optional index file path (Markdown)
-        ignore_individual_errors: if True, continue on individual file errors
         skip_existing: if True, skip files that already exist at the destination
         sanitize_filenames: if True (default), filenames derived from page titles
             are sanitized for Windows compatibility using pathvalidate
@@ -68,20 +67,17 @@ class Args:
         max_retries: maximum number of retries for failed operations
         retry_delay: delay in seconds between retries
         request_timeout: timeout in seconds for HTTP requests
-        progress_callback: optional callback for progress updates (current, total)
     """
 
     inputs: Sequence[str]
     dest: Path
     index: Path | None
-    ignore_individual_errors: bool
     skip_existing: bool = False
     sanitize_filenames: bool = True
     trust_env: bool = True
     max_retries: int = 3
     retry_delay: float = 1.0
     request_timeout: float = 30.0
-    progress_callback: Callable[[int, int], None] | None = None
 
     def __post_init__(self):
         """Normalize `inputs` to an immutable tuple after initialization."""

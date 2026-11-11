@@ -220,6 +220,7 @@ async def test_query_and_fetch_writes_file(
         inputs=("File:Example.jpg",),
         dest=Path(tmp_path),
         index=None,
+        skip_existing=False,
     )
 
     await main(args)
