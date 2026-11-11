@@ -107,6 +107,58 @@ async def test_index_write_error_sets_index_flag(
 
 
 @pytest.mark.anyio
+async def test_index_with_invalid_utf8_reports_index_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """An index that is not UTF-8 is reported as an index failure."""
+    session = _FakeClientSession({"File:A.jpg": _page("File:A.jpg")})
+    session.file_bytes = b"ok"
+    _patch_client(monkeypatch, session)
+
+    index_path = Path(tmp_path) / "index.md"
+    await index_path.write_bytes(b"\xff\xfe")
+
+    code = await main(
+        Args(inputs=("File:A.jpg",), dest=Path(tmp_path), index=index_path)
+    )
+
+    assert await (Path(tmp_path) / "A.jpg").exists()
+    assert code == ExitCode.INDEX_ERROR
+
+
+@pytest.mark.anyio
+async def test_index_write_failure_removes_temp_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A failed index write still deletes the temp file it just wrote."""
+    session = _FakeClientSession({"File:A.jpg": _page("File:A.jpg")})
+    session.file_bytes = b"ok"
+    _patch_client(monkeypatch, session)
+
+    original = cast(Any, Path.write_text)
+
+    async def failing_write_text(self: Path, text: str, **kwargs: Any) -> int:
+        """Write the bytes, then fail the way a full disk would."""
+        written = await original(self, text, **kwargs)
+        if self.name == ".index.md.tmp":
+            raise OSError("index write failure")
+        return written
+
+    monkeypatch.setattr(Path, "write_text", failing_write_text)
+
+    code = await main(
+        Args(
+            inputs=("File:A.jpg",),
+            dest=Path(tmp_path),
+            index=Path(tmp_path) / "index.md",
+        )
+    )
+
+    assert not await (Path(tmp_path) / ".index.md.tmp").exists()
+    assert code == ExitCode.INDEX_ERROR
+
+
+@pytest.mark.anyio
 async def test_index_file_created_when_missing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:

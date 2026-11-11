@@ -270,9 +270,9 @@ async def _download(
     """Download a page's file, replacing *dest_file* only when complete.
 
     Bytes stream into ``<filename>.part`` and the target name is replaced on
-    success, so a failed or killed transfer never leaves a truncated file under
-    the real name. A stale ``.part`` never shadows the target and is overwritten
-    by the next attempt.
+    success, so a failed or cancelled transfer never leaves a truncated file
+    under the real name. A killed process can leave that ``.part`` behind; it
+    never shadows the target and the next attempt overwrites it.
     """
     assert page.imageinfo is not None
     ii = page.imageinfo[0]
@@ -305,7 +305,8 @@ async def _download(
                 f"API reports {ii.size}"
             )
         await part.replace(dest_file)
-    except Exception:
+    except BaseException:
+        # Wider than Exception so a cancelled transfer still removes its bytes.
         await part.unlink(missing_ok=True)
         raise
 
@@ -368,8 +369,12 @@ async def _update_index(index: Path, entries: Sequence[tuple[str, str]]) -> None
     try:
         await temporary.write_text("\n\n".join(paragraphs) + "\n", **OPEN_TEXT_OPTIONS)
         await temporary.replace(index)
-    except Exception:
-        await temporary.unlink(missing_ok=True)
+    except BaseException:
+        # A failing cleanup must not replace the error that caused it.
+        try:
+            await temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
         raise
 
 
