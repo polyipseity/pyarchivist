@@ -96,9 +96,11 @@ Validation order for non-trivial changes:
 
 - Index format: entries are Markdown lines of the shape `- [<filename>](<url-escaped-filename>): <credit>` — the repository uses `_INDEX_FORMAT_PATTERN` in `src/pyarchivist/Wikimedia_Commons/main.py` to parse and update index files.
 
-- Concurrency & batching: queries are batched by `_QUERY_LIMIT = 50`, and a failed batch is bisected unless `Args.bisect_queries` is false. The connector allows `_MAX_CONCURRENT_REQUESTS_PER_HOST = 1` request per host. The timeout covers connect and read, not the whole transfer.
+- Concurrency & batching: queries are batched by `_QUERY_LIMIT = 50`, and a failed batch is halved unless `Args.bisect_queries` is false or the failure would repeat at any batch size (a connection error, a timeout, or a 5xx answer). The connector allows `_MAX_CONCURRENT_REQUESTS_PER_HOST = 1` request per host. The timeout covers connect and read, not the whole transfer.
 
-- Verification & errors: downloads are checked against the API `mime` and `size`, streamed to `<filename>.part`, and `replace()`d into place. Index lines merge by on-disk filename and are written through `.<index>.tmp` + `replace()`. `skip_existing` is on by default and compares the stored size with the API size. Failures become `ArchiveError(phase=...)` entries that map to `ExitCode` flags, so one bad file does not abort the run unless `--fail-fast` is set.
+- Verification & errors: downloads are checked against the API `mime` and `size`, streamed to `<filename>.part`, and `replace()`d into place. Index lines merge by case-folded on-disk filename, keep any prose already in the last paragraph, and go through `.<index>.tmp` + `replace()`. `skip_existing` is on by default and compares the stored size with the API size. Failures become `ArchiveError(phase=...)` entries, so one bad file does not abort the run unless `--fail-fast` is set.
+
+- Exit codes: each error sets only its own phase flag (`QUERY_ERROR_PARTIAL`, `FETCH_ERROR_PARTIAL`, `INDEX_ERROR`). `GENERIC_ERROR` is left for failures outside those phases, and a run where every file was already present exits with `SKIPPED`. A run that did nothing and hit no error exits 0.
 
 - Version & release single source-of-truth: bump `src/pyarchivist/meta.py::VERSION` and keep `pyproject.toml` in sync (there is a test `tests/pyarchivist/test___init__.py` that asserts this). Release commits must be GPG-signed and tag with `vX.Y.Z` as described below.
 

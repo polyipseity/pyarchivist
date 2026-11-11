@@ -18,7 +18,7 @@ Directory layout and naming:
   its contents and providing brief descriptions and canonical metadata (date,
   source URL, license, and a short summary).
 - Use YAML frontmatter for machine-readable metadata if the repo uses it.
-- The `Wikimedia_Commons` flow manages `index.md` paragraphs programmatically: entries are lines of the form `- [<filename>](<url-escaped-filename>): <credit>` and are parsed using `_INDEX_FORMAT_PATTERN` in `src/pyarchivist/Wikimedia_Commons/main.py`. When programmatically updating indexes, ensure filenames are escaped the same way as `_index_formatter` (it escapes backslashes and `]`). Entries are keyed by the on-disk filename (the link target), not the display text, and updates are written to `.<index>.tmp` before replacing the index.
+- The `Wikimedia_Commons` flow manages `index.md` paragraphs programmatically: entries are lines of the form `- [<filename>](<url-escaped-filename>): <credit>` and are parsed using `_INDEX_FORMAT_PATTERN` in `src/pyarchivist/Wikimedia_Commons/main.py`. When programmatically updating indexes, ensure filenames are escaped the same way as `_index_formatter` (it escapes backslashes and `]`). Entries are keyed by the case-folded on-disk filename (the link target), not the display text; lines in the last paragraph that are not entries stay where they are, and updates are written to `.<index>.tmp` before replacing the index.
 
 Metadata guidelines:
 
