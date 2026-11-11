@@ -6,14 +6,18 @@ library-oriented API. Helper utilities and small types used across the flow
 are declared here as well.
 """
 
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Sequence
 from html import escape as html_escape
 from itertools import chain
 from re import MULTILINE, compile
 from typing import TypeVar, override
 from urllib.parse import quote, unquote
 
-from aiohttp import ClientSession, ClientTimeout, TCPConnector
+from aiohttp import (
+    ClientSession,
+    ClientTimeout,
+    TCPConnector,
+)
 from aiohttp_retry import JitterRetry, RetryClient
 from asyncer import SoonValue, asyncify, create_task_group
 from pathvalidate import sanitize_filename
@@ -33,9 +37,16 @@ _MAX_CONCURRENT_REQUESTS_PER_HOST = 1
 _PERCENT_ESCAPE_SAFE = "/,"
 """Number of page titles per API query batch."""
 _QUERY_LIMIT = 50
+"""Content types that indicate an error document rather than media bytes."""
+_DOCUMENT_CONTENT_TYPES = frozenset(("application/xhtml+xml", "text/html"))
+"""Content types a server may send when it serves a file without its own MIME."""
+_GENERIC_CONTENT_TYPES = frozenset(("application/octet-stream", "binary/octet-stream"))
 """Type variable for generic helpers in this module."""
 _T = TypeVar("_T")
-
+"""Matches HTML-like tags stripped from credit metadata."""
+_HTML_TAG_PATTERN = compile(r"<[^>]*>", MULTILINE)
+"""Collapses whitespace runs in credit metadata."""
+_WHITESPACE_PATTERN = compile(r"\s+")
 # The CLI response models are provided by pydantic
 # models in :mod:`.models` (see `Args` and `ResponseModel`). This keeps
 # JSON parsing and validation centralized and more explicit.
@@ -45,7 +56,7 @@ _INDEX_FORMAT_PATTERN = compile(r"^- \[(.+?(?<!\\))]\((.+?(?<!\\))\): (.+)$", MU
 
 
 async def _query(
-    sess: RetryClient, inputs: Iterable[str]
+    sess: RetryClient, inputs: Sequence[str]
 ) -> Iterable[tuple[str, Page]]:
     """Query one batch of titles from Commons."""
     async with sess.get(
@@ -212,6 +223,34 @@ class _WikimediaRetry(JitterRetry):
         return super().get_timeout(attempt, response)
 
 
+async def _query(
+    sess: RetryClient, inputs: Sequence[str]
+) -> Iterable[tuple[str, Page]]:
+    """Query the Wikimedia Commons API for one batch of titles.
+
+    ``mime`` and ``size`` are requested with the URL so a download can be
+    verified against what the API says the file is.
+    """
+    async with sess.get(
+        URL.build(
+            scheme="https",
+            host="commons.wikimedia.org",
+            path="/w/api.php",
+            query={
+                "format": "json",
+                "action": "query",
+                "titles": "|".join(inputs),
+                "prop": "imageinfo",
+                "iiprop": "extmetadata|mime|size|url",
+            },
+        )
+    ) as resp:
+        if resp.status >= 400:
+            raise ValueError(f"HTTP {resp.status} querying {len(inputs)} titles")
+        text = await resp.text()
+    return ResponseModel.model_validate_json(text).query.pages.items()
+
+
 async def archive(args: Args) -> ArchiveResult:
     """Primary coroutine implementing the query-fetch-index flow.
 
@@ -251,15 +290,15 @@ async def archive(args: Args) -> ArchiveResult:
             try:
                 LOGGER.info(f"Querying {len(inputs)} files")
 
-                svs: list[SoonValue[Iterable[tuple[str, Page]]]] = []
+                query_svs: list[SoonValue[Iterable[tuple[str, Page]]]] = []
                 async with create_task_group() as tg:
                     for idx in range(0, len(inputs), _QUERY_LIMIT):
-                        svs.append(
+                        query_svs.append(
                             tg.soonify(_query)(
                                 sess, tuple(inputs[idx : idx + _QUERY_LIMIT])
                             )
                         )
-                queries = [sv.value for sv in svs]
+                queries = [sv.value for sv in query_svs]
                 queries, query_errors = _separate_results(queries, phase="query")
                 all_errors.extend(query_errors)
                 if not queries:
