@@ -28,6 +28,22 @@ def test_all_symbols_exist() -> None:
         assert hasattr(pyarchivist_types, name)
 
 
+def test_skipped_exit_code_shares_no_bits() -> None:
+    """Verify ``SKIPPED`` is a non-zero bit outside every error flag."""
+    error_flags = (
+        pyarchivist_types.ExitCode.GENERIC_ERROR,
+        pyarchivist_types.ExitCode.QUERY_ERROR,
+        pyarchivist_types.ExitCode.FETCH_ERROR,
+        pyarchivist_types.ExitCode.INDEX_ERROR,
+        pyarchivist_types.ExitCode.QUERY_ERROR_PARTIAL,
+        pyarchivist_types.ExitCode.FETCH_ERROR_PARTIAL,
+    )
+
+    assert pyarchivist_types.ExitCode.SKIPPED != 0
+    for flag in error_flags:
+        assert pyarchivist_types.ExitCode.SKIPPED & flag == 0
+
+
 def test_args_fields() -> None:
     """Verify Args has the expected fields."""
     fields = {f.name for f in dataclasses.fields(pyarchivist_types.Args)}

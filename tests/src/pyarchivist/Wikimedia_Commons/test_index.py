@@ -75,7 +75,7 @@ async def test_index_write_replaces_the_file_atomically(
 
 
 @pytest.mark.anyio
-async def test_index_write_error_sets_index_and_generic_flags(
+async def test_index_write_error_sets_index_flag(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
     """A failed index write is reported while the downloaded file survives."""
@@ -103,8 +103,7 @@ async def test_index_write_error_sets_index_and_generic_flags(
 
     assert await (Path(tmp_path) / "A.jpg").exists()
     assert not await (Path(tmp_path) / ".index.md.tmp").exists()
-    assert code & ExitCode.INDEX_ERROR
-    assert code & ExitCode.GENERIC_ERROR
+    assert code == ExitCode.INDEX_ERROR
 
 
 @pytest.mark.anyio

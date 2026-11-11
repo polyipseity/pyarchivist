@@ -96,7 +96,7 @@ async def test_query_batching_respects_query_limit(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("mode", ["malformed_json", "http_error"])
-async def test_query_failures_set_query_and_generic_flags(
+async def test_query_failures_set_query_flag(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str], mode: str
 ) -> None:
     """An invalid payload and an HTTP error both surface as query errors."""
@@ -112,8 +112,7 @@ async def test_query_failures_set_query_and_generic_flags(
     )
 
     assert await _names(tmp_path) == []
-    assert code & ExitCode.QUERY_ERROR_PARTIAL
-    assert code & ExitCode.GENERIC_ERROR
+    assert code == ExitCode.QUERY_ERROR_PARTIAL
 
 
 @pytest.mark.anyio
@@ -146,7 +145,7 @@ async def test_query_bisect_isolates_failing_title(
     assert await _names(tmp_path) == ["First.jpg", "Second.jpg"]
 
     code = await main(args)
-    assert code & ExitCode.QUERY_ERROR_PARTIAL
+    assert code == ExitCode.QUERY_ERROR_PARTIAL
 
 
 @pytest.mark.anyio
@@ -179,7 +178,7 @@ async def test_query_bisect_disabled_reports_one_batch_error(
     assert await _names(tmp_path) == []
 
     code = await main(args)
-    assert code & ExitCode.QUERY_ERROR_PARTIAL
+    assert code == ExitCode.QUERY_ERROR_PARTIAL
 
 
 @pytest.mark.anyio

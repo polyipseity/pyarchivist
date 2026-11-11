@@ -160,10 +160,10 @@ async def test_trust_env_passed_to_client_session(
 
 
 @pytest.mark.anyio
-async def test_all_skip_run_reports_generic_error(
+async def test_all_skip_run_returns_skipped(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
-    """A run that only skipped files returns ``GENERIC_ERROR`` by design."""
+    """A run that only skipped files returns ``ExitCode.SKIPPED``."""
     session = _FakeClientSession({"File:A.jpg": _page("File:A.jpg")})
     session.file_bytes = b"data"
     _patch_client(monkeypatch, session)
@@ -174,4 +174,20 @@ async def test_all_skip_run_reports_generic_error(
     code = await main(args)
 
     assert (first.downloaded, first.skipped) == (1, 0)
-    assert code == ExitCode.GENERIC_ERROR
+    assert code == ExitCode.SKIPPED
+
+
+@pytest.mark.anyio
+async def test_download_without_errors_returns_zero(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A run that downloaded a file and hit no error exits cleanly."""
+    session = _FakeClientSession({"File:B.jpg": _page("File:B.jpg")})
+    session.file_bytes = b"data"
+    _patch_client(monkeypatch, session)
+
+    args = Args(inputs=("File:B.jpg",), dest=Path(tmp_path), index=None)
+
+    code = await main(args)
+
+    assert code == ExitCode(0)

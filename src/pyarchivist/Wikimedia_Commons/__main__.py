@@ -36,7 +36,11 @@ async def main(args: Args) -> ExitCode:
 
 
 def _archive_result_to_exit_code(result: ArchiveResult) -> ExitCode:
-    """Translate an ``ArchiveResult`` into a combined ``ExitCode``."""
+    """Translate an ``ArchiveResult`` into a phase ``ExitCode``.
+
+    Each error sets only its own phase flag, and a run that skipped every file
+    reports ``ExitCode.SKIPPED``. A run that did nothing is a clean exit.
+    """
     ec = ExitCode(0)
     for error in result.errors:
         if error.phase == "query":
@@ -47,11 +51,11 @@ def _archive_result_to_exit_code(result: ArchiveResult) -> ExitCode:
             ec |= ExitCode.INDEX_ERROR
         else:
             ec |= ExitCode.GENERIC_ERROR
-    if result.errors:
-        ec |= ExitCode.GENERIC_ERROR
-    if result.downloaded == 0 and not ec:
-        ec |= ExitCode.GENERIC_ERROR
-    return ec
+    if ec:
+        return ec
+    if result.downloaded == 0 and result.skipped > 0:
+        return ExitCode.SKIPPED
+    return ExitCode(0)
 
 
 class _ParserNamespace(Protocol):

@@ -461,20 +461,20 @@ async def test_skip_existing_after_sanitize(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "scenario,expected_written,expected_flags,expected_downloaded",
+    "scenario,expected_written,expected_code,expected_downloaded",
     [
-        ("missing_imageinfo", [], (ExitCode.FETCH_ERROR_PARTIAL,), 0),
+        ("missing_imageinfo", [], ExitCode.FETCH_ERROR_PARTIAL, 0),
         (
             "missing_imageinfo_partial",
             ["Good.jpg"],
-            (ExitCode.FETCH_ERROR_PARTIAL,),
+            ExitCode.FETCH_ERROR_PARTIAL,
             1,
         ),
-        ("network_error", ["Good.jpg"], (ExitCode.FETCH_ERROR_PARTIAL,), 1),
-        ("stream_error", [], (ExitCode.FETCH_ERROR_PARTIAL,), 0),
-        ("timeout", [], (ExitCode.FETCH_ERROR_PARTIAL,), 0),
-        ("http_error", [], (ExitCode.FETCH_ERROR_PARTIAL,), 0),
-        ("corrupt_chunks", ["Corrupt.jpg"], (), 1),
+        ("network_error", ["Good.jpg"], ExitCode.FETCH_ERROR_PARTIAL, 1),
+        ("stream_error", [], ExitCode.FETCH_ERROR_PARTIAL, 0),
+        ("timeout", [], ExitCode.FETCH_ERROR_PARTIAL, 0),
+        ("http_error", [], ExitCode.FETCH_ERROR_PARTIAL, 0),
+        ("corrupt_chunks", ["Corrupt.jpg"], ExitCode(0), 1),
     ],
 )
 async def test_fetch_error_variants(
@@ -482,7 +482,7 @@ async def test_fetch_error_variants(
     tmp_path: PathLike[str],
     scenario: str,
     expected_written: list[str],
-    expected_flags: tuple[ExitCode, ...],
+    expected_code: ExitCode,
     expected_downloaded: int,
 ) -> None:
     """Fetch failures are reported per file; intact bodies still land."""
@@ -500,11 +500,7 @@ async def test_fetch_error_variants(
 
     assert result.downloaded == expected_downloaded
     assert await _names(tmp_path) == expected_written
-    if expected_flags:
-        for flag in expected_flags:
-            assert code & flag
-    else:
-        assert code == ExitCode(0)
+    assert code == expected_code
 
 
 def _scenario_client(
