@@ -96,9 +96,9 @@ Validation order for non-trivial changes:
 
 - Index format: entries are Markdown lines of the shape `- [<filename>](<url-escaped-filename>): <credit>` — the repository uses `_INDEX_FORMAT_PATTERN` in `src/pyarchivist/Wikimedia_Commons/main.py` to parse and update index files.
 
-- Concurrency & batching: queries are batched by `_QUERY_LIMIT = 50` and the HTTP client uses `_MAX_CONCURRENT_REQUESTS_PER_HOST = 1` (see `Wikimedia_Commons/main.py`) — prefer small, deterministic runs when testing.
+- Concurrency & batching: queries are batched by `_QUERY_LIMIT = 50`, and a failed batch is bisected unless `Args.bisect_queries` is false. The connector allows `_MAX_CONCURRENT_REQUESTS_PER_HOST = 1` request per host. The timeout covers connect and read, not the whole transfer.
 
-- Error handling: failures surface via `ExitCode` flags (e.g., `ExitCode.QUERY_ERROR`) and partial errors are handled by `_handle_partial_errors` (which may raise `ExceptionGroup` / `BaseExceptionGroup`). When writing agent tests, assert expected exit codes and logged exceptions where applicable.
+- Verification & errors: downloads are checked against the API `mime` and `size`, streamed to `<filename>.part`, and `replace()`d into place. Index lines merge by on-disk filename and are written through `.<index>.tmp` + `replace()`. `skip_existing` is on by default and compares the stored size with the API size. Failures become `ArchiveError(phase=...)` entries that map to `ExitCode` flags, so one bad file does not abort the run unless `--fail-fast` is set.
 
 - Version & release single source-of-truth: bump `src/pyarchivist/meta.py::VERSION` and keep `pyproject.toml` in sync (there is a test `tests/pyarchivist/test___init__.py` that asserts this). Release commits must be GPG-signed and tag with `vX.Y.Z` as described below.
 

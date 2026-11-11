@@ -13,6 +13,9 @@ from pyarchivist.Wikimedia_Commons.models import ImageInfoEntry, Page, ResponseM
 """Public symbols exported by this module (none)."""
 __all__ = ()
 
+"""Creative Commons license URL used in the sample payload."""
+_LICENSE_URL = "https://creativecommons.org/licenses/by-sa/4.0/"
+
 
 def _sample_response_with_metadata() -> dict[str, object]:
     """Return a sample API response containing extended metadata."""
@@ -23,7 +26,9 @@ def _sample_response_with_metadata() -> dict[str, object]:
                     "title": "File:Example.jpg",
                     "imageinfo": [
                         {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Example.jpg",
+                            "descriptionurl": (
+                                "https://commons.wikimedia.org/wiki/File:Example.jpg"
+                            ),
                             "url": "https://upload.wikimedia.org/example.jpg",
                             "extmetadata": {
                                 "Artist": {"value": "Jane Doe", "source": ""},
@@ -32,7 +37,7 @@ def _sample_response_with_metadata() -> dict[str, object]:
                                     "source": "",
                                 },
                                 "LicenseUrl": {
-                                    "value": "https://creativecommons.org/licenses/by-sa/4.0/",
+                                    "value": _LICENSE_URL,
                                     "source": "",
                                 },
                             },
@@ -53,7 +58,9 @@ def _sample_response_without_metadata() -> dict[str, object]:
                     "title": "File:NoMeta.jpg",
                     "imageinfo": [
                         {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:NoMeta.jpg",
+                            "descriptionurl": (
+                                "https://commons.wikimedia.org/wiki/File:NoMeta.jpg"
+                            ),
                             "url": "https://upload.wikimedia.org/nometa.jpg",
                             "extmetadata": {},
                         }
