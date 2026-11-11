@@ -49,6 +49,8 @@ class ImageInfoEntry(BaseModel):
     descriptionurl: str
     extmetadata: ExtMetadata | None = None
     url: str
+    mime: str | None = None
+    size: int | None = None
 
     model_config = ConfigDict(frozen=True)
 

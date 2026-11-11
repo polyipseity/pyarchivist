@@ -44,6 +44,30 @@ _T = TypeVar("_T")
 _INDEX_FORMAT_PATTERN = compile(r"^- \[(.+?(?<!\\))]\((.+?(?<!\\))\): (.+)$", MULTILINE)
 
 
+async def _query(
+    sess: RetryClient, inputs: Iterable[str]
+) -> Iterable[tuple[str, Page]]:
+    """Query one batch of titles from Commons."""
+    async with sess.get(
+        URL.build(
+            scheme="https",
+            host="commons.wikimedia.org",
+            path="/w/api.php",
+            query={
+                "format": "json",
+                "action": "query",
+                "titles": "|".join(inputs),
+                "prop": "imageinfo",
+                "iiprop": "extmetadata|mime|size|url",
+            },
+        )
+    ) as resp:
+        if resp.status >= 400:
+            raise ValueError(f"HTTP {resp.status} querying {len(tuple(inputs))} titles")
+        text = await resp.text()
+    return ResponseModel.model_validate_json(text).query.pages.items()
+
+
 def _handle_partial_errors(
     results: Collection[_T | BaseException],
     *,
@@ -227,36 +251,13 @@ async def archive(args: Args) -> ArchiveResult:
             try:
                 LOGGER.info(f"Querying {len(inputs)} files")
 
-                async def query(
-                    inputs: Iterable[str],
-                ) -> Iterable[tuple[str, Page]] | BaseException:
-                    """Query the Wikimedia Commons API for the given titles.
-
-                    RetryClient handles HTTP retries (429, 5xx) at session level.
-                    """
-                    async with sess.get(
-                        URL.build(
-                            scheme="https",
-                            host="commons.wikimedia.org",
-                            path="/w/api.php",
-                            query={
-                                "format": "json",
-                                "action": "query",
-                                "titles": "|".join(inputs),
-                                "prop": "imageinfo",
-                                "iiprop": "extmetadata|url",
-                            },
-                        )
-                    ) as resp:
-                        text = await resp.text()
-                    data = ResponseModel.model_validate_json(text)
-                    return data.query.pages.items()
-
-                svs: list[SoonValue[Iterable[tuple[str, Page]] | BaseException]] = []
+                svs: list[SoonValue[Iterable[tuple[str, Page]]]] = []
                 async with create_task_group() as tg:
                     for idx in range(0, len(inputs), _QUERY_LIMIT):
                         svs.append(
-                            tg.soonify(query)(tuple(inputs[idx : idx + _QUERY_LIMIT]))
+                            tg.soonify(_query)(
+                                sess, tuple(inputs[idx : idx + _QUERY_LIMIT])
+                            )
                         )
                 queries = [sv.value for sv in svs]
                 queries, query_errors = _separate_results(queries, phase="query")
