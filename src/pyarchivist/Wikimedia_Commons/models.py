@@ -44,13 +44,17 @@ class ExtMetadata(BaseModel):
 
 
 class ImageInfoEntry(BaseModel):
-    """Describes a single image variant including URL and metadata."""
+    """Describes a single image variant including URL and metadata.
+
+    ``mime`` and ``size`` mirror ``iiprop=mime|size`` and are optional because the
+    API omits them when unrequested.
+    """
 
     descriptionurl: str
     extmetadata: ExtMetadata | None = None
-    url: str
     mime: str | None = None
     size: int | None = None
+    url: str
 
     model_config = ConfigDict(frozen=True)
 

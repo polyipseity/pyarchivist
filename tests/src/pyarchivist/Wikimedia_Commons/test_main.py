@@ -18,6 +18,7 @@ import pytest
 from anyio import Path, sleep
 from hypothesis import given
 from hypothesis import strategies as st
+from yarl import URL
 
 from pyarchivist.meta import VERSION
 from pyarchivist.types import Args, ExitCode
@@ -867,7 +868,6 @@ async def test_query_batching_respects_query_limit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
     """With a small `_QUERY_LIMIT` the implementation should batch queries."""
-    # set a small query limit to force batching
     monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main._QUERY_LIMIT", 1)
 
     class CountingClient(_FakeClientSession):
@@ -877,8 +877,8 @@ async def test_query_batching_respects_query_limit(
             """Initialize counters and placeholder responses."""
             super().__init__()
             self.query_calls = 0
+            self.query_urls: list[str] = []
             self._file_bytes = b"x"
-            # prepare api responses for two distinct inputs
             self._api_json = None
 
         @override
@@ -887,7 +887,7 @@ async def test_query_batching_respects_query_limit(
             s = str(url)
             if "api.php" in s:
                 self.query_calls += 1
-                # examine the 'titles' query param to return the expected page
+                self.query_urls.append(s)
                 if "First" in s:
                     return _FakeResp(
                         json_data={
@@ -946,8 +946,10 @@ async def test_query_batching_respects_query_limit(
 
     await main(args)
 
-    # with _QUERY_LIMIT == 1 there should be two separate query calls
     assert fake.query_calls == 2
+    iiprop = URL(fake.query_urls[0]).query["iiprop"].split("|")
+    assert "mime" in iiprop
+    assert "size" in iiprop
 
 
 @pytest.mark.anyio

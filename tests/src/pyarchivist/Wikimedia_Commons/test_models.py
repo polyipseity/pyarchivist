@@ -118,3 +118,24 @@ def test_page_imageinfo_is_optional_in_api_response() -> None:
         }
     )
     assert model.query.pages["3"].imageinfo is None
+
+
+def test_image_info_entry_parses_mime_and_size() -> None:
+    """`mime` and `size` from `iiprop=mime|size` are exposed on the entry."""
+    entry = ImageInfoEntry.model_validate(
+        {
+            "descriptionurl": "https://commons.wikimedia.org/wiki/File:A.ogv",
+            "url": "https://upload.wikimedia.org/a.ogv",
+            "mime": "application/ogg",
+            "size": 4173,
+        }
+    )
+    assert entry.mime == "application/ogg"
+    assert entry.size == 4173
+
+
+def test_image_info_entry_mime_and_size_default_to_none() -> None:
+    """Payloads without `mime`/`size` still validate."""
+    entry = ImageInfoEntry(descriptionurl="d", url="u")
+    assert entry.mime is None
+    assert entry.size is None

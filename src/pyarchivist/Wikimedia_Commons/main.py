@@ -58,7 +58,11 @@ _INDEX_FORMAT_PATTERN = compile(r"^- \[(.+?(?<!\\))]\((.+?(?<!\\))\): (.+)$", MU
 async def _query(
     sess: RetryClient, inputs: Sequence[str]
 ) -> Iterable[tuple[str, Page]]:
-    """Query one batch of titles from Commons."""
+    """Query one batch of titles from Commons.
+
+    ``mime`` and ``size`` are requested with the URL so a download can be
+    verified against what the API says the file is.
+    """
     async with sess.get(
         URL.build(
             scheme="https",
