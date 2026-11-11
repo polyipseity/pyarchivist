@@ -208,9 +208,10 @@ def _plan_targets(
 ) -> tuple[list[tuple[Page, str, str, Path]], list[ArchiveError]]:
     """Resolve one destination per page and reject titles that collide.
 
-    Sanitizing different titles can map them onto one filename; two concurrent
-    downloads to one path would interleave their bytes, so the later page is
-    rejected instead of racing the first.
+    Sanitizing different titles can map them onto one filename, and a
+    case-insensitive filesystem treats letter case as the same name; two
+    concurrent downloads to one path would interleave their bytes, so the later
+    page is rejected instead of racing the first.
     """
     targets: list[tuple[Page, str, str, Path]] = []
     errors: list[ArchiveError] = []
@@ -223,7 +224,7 @@ def _plan_targets(
                 ArchiveError(phase="fetch", title=page.title, message=str(exc))
             )
             continue
-        owner = claimed.setdefault(filename, page.title)
+        owner = claimed.setdefault(filename.casefold(), page.title)
         if owner != page.title:
             errors.append(
                 ArchiveError(
@@ -296,6 +297,8 @@ async def _download(
                 async for chunk in resp.content.iter_any():
                     written += len(chunk)
                     await file.write(chunk)
+        if written == 0:
+            raise ValueError(f"Empty body for '{filename}'")
         if ii.size is not None and written != ii.size:
             raise ValueError(
                 f"Size mismatch for '{filename}': wrote {written} bytes, "
@@ -362,8 +365,12 @@ async def _update_index(index: Path, entries: Sequence[tuple[str, str]]) -> None
         line for _, line in sorted(merged.items(), key=lambda item: item[0])
     )
     temporary = index.with_name(f".{index.name}.tmp")
-    await temporary.write_text("\n\n".join(paragraphs) + "\n", **OPEN_TEXT_OPTIONS)
-    await temporary.replace(index)
+    try:
+        await temporary.write_text("\n\n".join(paragraphs) + "\n", **OPEN_TEXT_OPTIONS)
+        await temporary.replace(index)
+    except Exception:
+        await temporary.unlink(missing_ok=True)
+        raise
 
 
 async def archive(args: Args) -> ArchiveResult:
@@ -495,7 +502,7 @@ async def archive(args: Args) -> ArchiveResult:
                     LOGGER.info(f"Indexing {len(entries)} files")
                     try:
                         await _update_index(args.index, entries)
-                    except OSError as exc:
+                    except (OSError, UnicodeError) as exc:
                         all_errors.append(
                             ArchiveError(phase="index", title="", message=str(exc))
                         )

@@ -102,6 +102,7 @@ async def test_index_write_error_sets_index_and_generic_flags(
     )
 
     assert await (Path(tmp_path) / "A.jpg").exists()
+    assert not await (Path(tmp_path) / ".index.md.tmp").exists()
     assert code & ExitCode.INDEX_ERROR
     assert code & ExitCode.GENERIC_ERROR
 

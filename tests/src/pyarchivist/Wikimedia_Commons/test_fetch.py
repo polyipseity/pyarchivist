@@ -4,6 +4,7 @@ Each test runs ``archive`` against a fake session and asserts the observable
 outcome: files on disk, reported errors and the resulting exit code.
 """
 
+from logging import WARNING
 from os import PathLike
 
 import pytest
@@ -79,6 +80,30 @@ async def test_ogg_content_types_are_accepted(
 
 
 @pytest.mark.anyio
+async def test_mime_mismatch_warns_but_downloads(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: PathLike[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A different server content type is a warning, not a failed download."""
+    session = _FakeClientSession(
+        {"File:A.png": _page("File:A.png", mime="image/png", size=8)}
+    )
+    session.file_bytes = b"PNGbytes"
+    session.content_type = "image/jpeg"
+    _patch_client(monkeypatch, session)
+
+    with caplog.at_level(WARNING):
+        result = await archive(
+            Args(inputs=("File:A.png",), dest=Path(tmp_path), index=None)
+        )
+
+    assert "differs from API mime" in caplog.text
+    assert result.downloaded == 1
+    assert await (Path(tmp_path) / "A.png").read_bytes() == b"PNGbytes"
+
+
+@pytest.mark.anyio
 async def test_html_error_page_is_rejected_and_leaves_no_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
@@ -134,6 +159,24 @@ async def test_stream_failure_leaves_no_partial_file(
 
     assert result.downloaded == 0
     assert [error.phase for error in result.errors] == ["fetch"]
+    assert await _names(tmp_path) == []
+
+
+@pytest.mark.anyio
+async def test_empty_body_without_api_size_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """An empty body is never media, even when the API reports no size."""
+    session = _FakeClientSession({"File:Empty.jpg": _page("File:Empty.jpg")})
+    session.file_bytes = b""
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(inputs=("File:Empty.jpg",), dest=Path(tmp_path), index=None)
+    )
+
+    assert result.downloaded == 0
+    assert "Empty body" in result.errors[0].message
     assert await _names(tmp_path) == []
 
 
@@ -233,6 +276,30 @@ async def test_filename_collision_is_reported_and_not_written(
 
 
 @pytest.mark.anyio
+async def test_case_folded_filename_collision_is_reported(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """Titles differing only in case cannot race one path on a case-insensitive FS."""
+    session = _FakeClientSession(
+        {
+            "File:AB.jpg": _page("File:AB.jpg"),
+            "File:Ab.jpg": _page("File:Ab.jpg"),
+        }
+    )
+    session.file_bytes = b"collision"
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(inputs=("File:AB.jpg", "File:Ab.jpg"), dest=Path(tmp_path), index=None)
+    )
+
+    assert await _names(tmp_path) == ["AB.jpg"]
+    assert result.downloaded == 1
+    assert len(result.errors) == 1
+    assert "already used by 'File:AB.jpg'" in result.errors[0].message
+
+
+@pytest.mark.anyio
 async def test_fail_fast_stops_after_first_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
@@ -262,6 +329,7 @@ async def test_fail_fast_stops_after_first_error(
     assert not await index_path.exists()
     assert (result.downloaded, result.skipped) == (1, 0)
     assert [error.phase for error in result.errors] == ["fetch"]
+    assert not any("Three.jpg" in url for url in session.file_urls)
 
 
 @pytest.mark.anyio

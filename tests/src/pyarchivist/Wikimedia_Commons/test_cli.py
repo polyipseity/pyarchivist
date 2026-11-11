@@ -8,11 +8,14 @@ import pytest
 from anyio import Path
 
 from pyarchivist.meta import VERSION
-from pyarchivist.types import Args
-from pyarchivist.Wikimedia_Commons.__main__ import parser
+from pyarchivist.types import Args, ExitCode
+from pyarchivist.Wikimedia_Commons.__main__ import main, parser
 from pyarchivist.Wikimedia_Commons.main import archive
 from tests.src.pyarchivist.Wikimedia_Commons.fakes import (
     _CapturingClientSession,
+    _FakeClientSession,
+    _page,
+    _patch_client,
     _patch_session_class,
 )
 
@@ -154,3 +157,21 @@ async def test_trust_env_passed_to_client_session(
     )
 
     assert _CapturingClientSession.captured["trust_env"] is trust_env
+
+
+@pytest.mark.anyio
+async def test_all_skip_run_reports_generic_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A run that only skipped files returns ``GENERIC_ERROR`` by design."""
+    session = _FakeClientSession({"File:A.jpg": _page("File:A.jpg")})
+    session.file_bytes = b"data"
+    _patch_client(monkeypatch, session)
+
+    args = Args(inputs=("File:A.jpg",), dest=Path(tmp_path), index=None)
+
+    first = await archive(args)
+    code = await main(args)
+
+    assert (first.downloaded, first.skipped) == (1, 0)
+    assert code == ExitCode.GENERIC_ERROR
