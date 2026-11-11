@@ -60,8 +60,11 @@ class _ParserNamespace(Protocol):
     dest: Path
     index: Path | None
     inputs: list[str]
-    ignore_individual_errors: bool
+    skip_existing: bool
+    sanitize_filenames: bool
     trust_env: bool
+    fail_fast: bool
+    bisect_queries: bool
 
 
 def parser(parent: Callable[..., ArgumentParser] | None = None):
@@ -102,11 +105,50 @@ def parser(parent: Callable[..., ArgumentParser] | None = None):
         help="Markdown-based index file",
     )
     parser.add_argument(
-        "--ignore-individual-errors",
+        "--skip-existing",
+        action="store_true",
+        default=True,
+        help="skip files already present with the size the API reports",
+        dest="skip_existing",
+    )
+    parser.add_argument(
+        "--no-skip-existing",
+        action="store_false",
+        dest="skip_existing",
+        help="download again even when the file is already present",
+    )
+    parser.add_argument(
+        "--sanitize-filenames",
+        action="store_true",
+        default=True,
+        help="sanitize filenames derived from titles for Windows (default: true)",
+        dest="sanitize_filenames",
+    )
+    parser.add_argument(
+        "--no-sanitize-filenames",
+        action="store_false",
+        dest="sanitize_filenames",
+        help="use the original title-derived filename on disk",
+    )
+    parser.add_argument(
+        "--fail-fast",
         action="store_true",
         default=False,
-        help="ignore errors from individual files",
-        dest="ignore_individual_errors",
+        help="stop at the first fetch error instead of continuing with the rest",
+        dest="fail_fast",
+    )
+    parser.add_argument(
+        "--bisect-queries",
+        action="store_true",
+        default=True,
+        help="split a failing query batch to isolate failing titles (default: true)",
+        dest="bisect_queries",
+    )
+    parser.add_argument(
+        "--no-bisect-queries",
+        action="store_false",
+        dest="bisect_queries",
+        help="report one error for a failing query batch",
     )
     parser.add_argument(
         "--trust-env",
@@ -138,8 +180,11 @@ def parser(parent: Callable[..., ArgumentParser] | None = None):
                 inputs=tuple(args.inputs),
                 dest=args.dest,
                 index=args.index,
-                ignore_individual_errors=args.ignore_individual_errors,
+                skip_existing=args.skip_existing,
+                sanitize_filenames=args.sanitize_filenames,
                 trust_env=args.trust_env,
+                fail_fast=args.fail_fast,
+                bisect_queries=args.bisect_queries,
             )
         )
 

@@ -139,3 +139,12 @@ def test_image_info_entry_mime_and_size_default_to_none() -> None:
     entry = ImageInfoEntry(descriptionurl="d", url="u")
     assert entry.mime is None
     assert entry.size is None
+
+
+def test_page_parses_missing_and_invalidreason() -> None:
+    """Missing and invalid pages expose the API markers on `Page`."""
+    missing = Page.model_validate({"title": "File:No.jpg", "missing": ""})
+    invalid = Page.model_validate({"title": "File:?|", "invalidreason": "bad title"})
+
+    assert missing.missing == ""
+    assert invalid.invalidreason == "bad title"

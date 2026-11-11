@@ -1,24 +1,26 @@
-"""Wikimedia Commons archive implementation.
+"""Query, download and index files from Wikimedia Commons.
 
-This module implements the query, fetch and indexing flow for files on
-Wikimedia Commons. It provides a top-level `archive` coroutine and the
-library-oriented API. Helper utilities and small types used across the flow
-are declared here as well.
+The flow has three phases: query the API for page metadata, fetch each file into
+the destination directory, and merge the resulting lines into an optional
+Markdown index. Every phase isolates failures per item, so one bad title or one
+broken transfer does not discard the work done for the others.
 """
 
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Iterable, Sequence
 from html import escape as html_escape
-from itertools import chain
 from re import MULTILINE, compile
-from typing import TypeVar, override
+from typing import NamedTuple, override
 from urllib.parse import quote, unquote
 
 from aiohttp import (
+    ClientConnectionError,
+    ClientPayloadError,
     ClientSession,
     ClientTimeout,
     TCPConnector,
 )
 from aiohttp_retry import JitterRetry, RetryClient
+from anyio import Path
 from asyncer import SoonValue, asyncify, create_task_group
 from pathvalidate import sanitize_filename
 from yarl import URL
@@ -26,7 +28,7 @@ from yarl import URL
 from pyarchivist.meta import LOGGER, OPEN_TEXT_OPTIONS, USER_AGENT
 from pyarchivist.types import ArchiveError, ArchiveResult, Args
 
-from .models import Page, ResponseModel
+from .models import ImageInfoEntry, Page, ResponseModel
 
 """Public symbols exported by this module."""
 __all__ = ("archive",)
@@ -41,16 +43,10 @@ _QUERY_LIMIT = 50
 _DOCUMENT_CONTENT_TYPES = frozenset(("application/xhtml+xml", "text/html"))
 """Content types a server may send when it serves a file without its own MIME."""
 _GENERIC_CONTENT_TYPES = frozenset(("application/octet-stream", "binary/octet-stream"))
-"""Type variable for generic helpers in this module."""
-_T = TypeVar("_T")
 """Matches HTML-like tags stripped from credit metadata."""
 _HTML_TAG_PATTERN = compile(r"<[^>]*>", MULTILINE)
 """Collapses whitespace runs in credit metadata."""
 _WHITESPACE_PATTERN = compile(r"\s+")
-# The CLI response models are provided by pydantic
-# models in :mod:`.models` (see `Args` and `ResponseModel`). This keeps
-# JSON parsing and validation centralized and more explicit.
-
 """Regex matching index.md lines: - [display](url): credit."""
 _INDEX_FORMAT_PATTERN = compile(r"^- \[(.+?(?<!\\))]\((.+?(?<!\\))\): (.+)$", MULTILINE)
 
@@ -58,10 +54,11 @@ _INDEX_FORMAT_PATTERN = compile(r"^- \[(.+?(?<!\\))]\((.+?(?<!\\))\): (.+)$", MU
 async def _query(
     sess: RetryClient, inputs: Sequence[str]
 ) -> Iterable[tuple[str, Page]]:
-    """Query one batch of titles from Commons.
+    """Query the Wikimedia Commons API for one batch of titles.
 
     ``mime`` and ``size`` are requested with the URL so a download can be
-    verified against what the API says the file is.
+    verified against what the API says the file is. ``RetryClient`` handles
+    429/5xx at session level.
     """
     async with sess.get(
         URL.build(
@@ -78,55 +75,73 @@ async def _query(
         )
     ) as resp:
         if resp.status >= 400:
-            raise ValueError(f"HTTP {resp.status} querying {len(tuple(inputs))} titles")
+            raise ValueError(f"HTTP {resp.status} querying {len(inputs)} titles")
         text = await resp.text()
     return ResponseModel.model_validate_json(text).query.pages.items()
 
 
-def _index_formatter(filename: str, credit: str, *, display: str | None = None):
+async def _query_with_bisect(
+    sess: RetryClient, inputs: Sequence[str], *, bisect: bool
+) -> tuple[list[tuple[str, Page]], list[ArchiveError]]:
+    """Query a batch, isolating failing titles by halving it.
+
+    A failed batch reports one error for every title in it; splitting until each
+    failing title stands alone keeps one bad input from failing its
+    batch-mates. Failures are rare, so halving sequentially is cheaper than the
+    machinery needed to do it concurrently.
+    """
+    try:
+        return list(await _query(sess, inputs)), []
+    except Exception as exc:
+        if not bisect or len(inputs) < 2:
+            return [], [
+                ArchiveError(phase="query", title=", ".join(inputs), message=str(exc))
+            ]
+        middle = len(inputs) // 2
+        left_pages, left_errors = await _query_with_bisect(
+            sess, inputs[:middle], bisect=bisect
+        )
+        right_pages, right_errors = await _query_with_bisect(
+            sess, inputs[middle:], bisect=bisect
+        )
+        return left_pages + right_pages, left_errors + right_errors
+
+
+def _index_formatter(filename: str, credit: str, *, display: str | None = None) -> str:
     """Format a Markdown index line for a file and its credit string.
 
-    *filename* is URL-escaped for the link target.  *display* (when given)
-    is used as the visible link text; when omitted the *filename* is used
-    instead.  The returned string is suitable for appending to an
-    ``index.md`` paragraph handled by the indexing logic.
+    ``filename`` is URL-escaped for the link target and used as the link text
+    unless ``display`` overrides it.
     """
-
     escaped = (display or filename).replace("\\", "\\\\").replace("]", "\\]")
     return f"- [{escaped}]({quote(filename, safe=_PERCENT_ESCAPE_SAFE)}): {credit}"
 
 
-def _credit_formatter(page: Page):
-    """Produce a credit string (HTML fragment) for an image page.
+def _credit_formatter(page: Page) -> str:
+    """Produce the credit fragment for a page from its extended metadata.
 
-    The function extracts author and license information from the page
-    metadata, sanitizes common 'Unknown' markers and returns a concise
-    HTML snippet linking back to the file description page on Commons.
+    Author and license short names have embedded HTML stripped and whitespace
+    collapsed; markers such as ``Unknown author`` fall back to a link to the
+    description page.
     """
-
     assert page.imageinfo is not None
 
     ii = page.imageinfo[0]
     emd = ii.extmetadata
 
-    # Defensive access: pydantic fields may be None; ensure we pass `str` to
-    # regex operations and call string methods only on `str`.
     raw_author = ""
     if emd and emd.Artist and emd.Artist.value:
         raw_author = emd.Artist.value
-    # Strip HTML-like tags using simple regex pattern, then normalize whitespace
-    author = compile(r"<[^>]*>", flags=MULTILINE).sub("", raw_author)
-    author = compile(r"\s+").sub(" ", author.replace("\n", " ")).strip()
-
+    author = _HTML_TAG_PATTERN.sub("", raw_author)
+    author = _WHITESPACE_PATTERN.sub(" ", author.replace("\n", " ")).strip()
     if "Unknown author".casefold() in author.casefold():
         author = ""
 
     raw_lic = ""
     if emd and emd.LicenseShortName and emd.LicenseShortName.value:
         raw_lic = emd.LicenseShortName.value
-    # Strip HTML-like tags and treat whitespace-only values as absent
-    lic = compile(r"<[^>]*>", flags=MULTILINE).sub("", raw_lic)
-    lic = compile(r"\s+").sub(" ", lic.replace("\n", " ")).strip()
+    lic = _HTML_TAG_PATTERN.sub("", raw_lic)
+    lic = _WHITESPACE_PATTERN.sub(" ", lic.replace("\n", " ")).strip()
     if "Unknown license".casefold() in lic.casefold():
         lic = ""
 
@@ -146,28 +161,6 @@ def _credit_formatter(page: Page):
     return (
         f'<a href="{ii.descriptionurl}">{author}</a>, {lic_lnk}, via Wikimedia Commons'
     )
-
-
-def _separate_results(
-    results: Collection[_T | BaseException],
-    phase: str,
-    title: str = "",
-) -> tuple[list[_T], list[ArchiveError]]:
-    """Separate results into successes and ArchiveErrors.
-
-    Re-raises non-Exception BaseExceptions (e.g. KeyboardInterrupt,
-    SystemExit) as a BaseExceptionGroup.
-    """
-    base_exceptions = [r for r in results if isinstance(r, BaseException)]
-    exceptions = [e for e in base_exceptions if isinstance(e, Exception)]
-    non_exceptions = [e for e in base_exceptions if not isinstance(e, Exception)]
-    if non_exceptions:
-        raise BaseExceptionGroup(f"Error during {phase}", non_exceptions)
-    errors = [
-        ArchiveError(phase=phase, title=title, message=str(e)) for e in exceptions
-    ]
-    successful = [r for r in results if not isinstance(r, BaseException)]
-    return successful, errors
 
 
 class _WikimediaRetry(JitterRetry):
@@ -190,44 +183,195 @@ class _WikimediaRetry(JitterRetry):
         return super().get_timeout(attempt, response)
 
 
-async def _query(
-    sess: RetryClient, inputs: Sequence[str]
-) -> Iterable[tuple[str, Page]]:
-    """Query the Wikimedia Commons API for one batch of titles.
+class _Fetched(NamedTuple):
+    """Outcome of a file that was downloaded or deliberately skipped."""
 
-    ``mime`` and ``size`` are requested with the URL so a download can be
-    verified against what the API says the file is.
+    display: str
+    filename: str
+    index_line: str
+    skipped: bool
+
+
+def _resolve_filename(page: Page, *, sanitize: bool) -> tuple[str, str]:
+    """Return the ``(display, filename)`` pair a page is archived under."""
+    display = page.title.split(":", 1)[-1]
+    filename = display
+    if sanitize:
+        filename = sanitize_filename(filename, platform="windows", replacement_text="_")
+    if not filename or "/" in filename or filename in (".", ".."):
+        raise ValueError(f"Invalid filename derived from title: '{page.title}'")
+    return display, filename
+
+
+def _plan_targets(
+    pages: Iterable[Page], *, dest: Path, sanitize: bool
+) -> tuple[list[tuple[Page, str, str, Path]], list[ArchiveError]]:
+    """Resolve one destination per page and reject titles that collide.
+
+    Sanitizing different titles can map them onto one filename; two concurrent
+    downloads to one path would interleave their bytes, so the later page is
+    rejected instead of racing the first.
     """
-    async with sess.get(
-        URL.build(
-            scheme="https",
-            host="commons.wikimedia.org",
-            path="/w/api.php",
-            query={
-                "format": "json",
-                "action": "query",
-                "titles": "|".join(inputs),
-                "prop": "imageinfo",
-                "iiprop": "extmetadata|mime|size|url",
-            },
+    targets: list[tuple[Page, str, str, Path]] = []
+    errors: list[ArchiveError] = []
+    claimed: dict[str, str] = {}
+    for page in pages:
+        try:
+            display, filename = _resolve_filename(page, sanitize=sanitize)
+        except ValueError as exc:
+            errors.append(
+                ArchiveError(phase="fetch", title=page.title, message=str(exc))
+            )
+            continue
+        owner = claimed.setdefault(filename, page.title)
+        if owner != page.title:
+            errors.append(
+                ArchiveError(
+                    phase="fetch",
+                    title=page.title,
+                    message=f"Filename '{filename}' is already used by '{owner}'",
+                )
+            )
+            continue
+        targets.append((page, display, filename, dest / filename))
+    return targets, errors
+
+
+def _mime_consistent(api_mime: str, content_type: str) -> bool:
+    """Return whether a response content type agrees with the API-declared MIME.
+
+    ``content_type`` is aiohttp's parsed, lower-cased header value, or
+    ``application/octet-stream`` when the header is absent, so a generic value
+    carries no information and always agrees.
+    """
+    return api_mime.lower() == content_type or content_type in _GENERIC_CONTENT_TYPES
+
+
+async def _is_complete(dest_file: Path, ii: ImageInfoEntry) -> bool:
+    """Return whether an existing file is a complete earlier download.
+
+    Comparing against the size the API reports turns skipping into an integrity
+    check; with no API size only a non-empty file counts, because an empty file
+    is never media.
+    """
+    try:
+        stored = (await dest_file.stat()).st_size
+    except FileNotFoundError:
+        return False
+    if ii.size is None:
+        return stored > 0
+    return stored == ii.size
+
+
+async def _download(
+    sess: RetryClient, page: Page, dest_file: Path, *, filename: str
+) -> None:
+    """Download a page's file, replacing *dest_file* only when complete.
+
+    Bytes stream into ``<filename>.part`` and the target name is replaced on
+    success, so a failed or killed transfer never leaves a truncated file under
+    the real name. A stale ``.part`` never shadows the target and is overwritten
+    by the next attempt.
+    """
+    assert page.imageinfo is not None
+    ii = page.imageinfo[0]
+    part = dest_file.with_name(f"{dest_file.name}.part")
+    try:
+        async with sess.get(ii.url) as resp:
+            if resp.status >= 400:
+                raise ValueError(f"HTTP {resp.status} fetching '{filename}'")
+            if resp.content_type in _DOCUMENT_CONTENT_TYPES:
+                raise ValueError(
+                    f"Unexpected content-type {resp.content_type!r} for '{filename}'"
+                )
+            if ii.mime is not None and not _mime_consistent(ii.mime, resp.content_type):
+                LOGGER.warning(
+                    "Content-type %r differs from API mime %r for '%s'",
+                    resp.content_type,
+                    ii.mime,
+                    filename,
+                )
+            written = 0
+            async with await part.open(mode="wb") as file:
+                async for chunk in resp.content.iter_any():
+                    written += len(chunk)
+                    await file.write(chunk)
+        if ii.size is not None and written != ii.size:
+            raise ValueError(
+                f"Size mismatch for '{filename}': wrote {written} bytes, "
+                f"API reports {ii.size}"
+            )
+        await part.replace(dest_file)
+    except Exception:
+        await part.unlink(missing_ok=True)
+        raise
+
+
+async def _fetch_one(
+    sess: RetryClient,
+    page: Page,
+    dest_file: Path,
+    *,
+    display: str,
+    filename: str,
+    skip_existing: bool,
+) -> _Fetched:
+    """Download or skip one page and build its index line."""
+    if page.missing is not None:
+        raise ValueError(f"'{page.title}' does not exist on Wikimedia Commons")
+    if page.invalidreason is not None:
+        raise ValueError(f"'{page.title}' is not a valid title: {page.invalidreason}")
+    if page.imageinfo is None:
+        raise ValueError(f"No image info for '{page.title}'")
+    ii = page.imageinfo[0]
+    skipped = False
+    if skip_existing and await _is_complete(dest_file, ii):
+        LOGGER.info("Skipping existing '%s'", filename)
+        skipped = True
+    else:
+        LOGGER.info("Fetching '%s'", filename)
+        await _download(sess, page, dest_file, filename=filename)
+    credit = await asyncify(_credit_formatter)(page)
+    index_line = await asyncify(_index_formatter)(filename, credit, display=display)
+    return _Fetched(display, filename, index_line, skipped)
+
+
+async def _update_index(index: Path, entries: Sequence[tuple[str, str]]) -> None:
+    """Merge *entries* into the last paragraph of *index*, writing atomically.
+
+    Entries are keyed by the on-disk filename because that is what an existing
+    line encodes in its link target; keying by the display title would append a
+    second line for a file that sanitization renamed. Rewriting through a sibling
+    temp file keeps the index intact if the process dies mid-write.
+    """
+    await index.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        text = await index.read_text(
+            encoding=OPEN_TEXT_OPTIONS["encoding"],
+            errors=OPEN_TEXT_OPTIONS["errors"],
         )
-    ) as resp:
-        if resp.status >= 400:
-            raise ValueError(f"HTTP {resp.status} querying {len(inputs)} titles")
-        text = await resp.text()
-    return ResponseModel.model_validate_json(text).query.pages.items()
+    except FileNotFoundError:
+        text = ""
+    paragraphs = text.strip().split("\n\n")
+    merged = {
+        unquote(match[2]): match[0]
+        for match in _INDEX_FORMAT_PATTERN.finditer(paragraphs[-1])
+    }
+    merged.update(entries)
+    paragraphs[-1] = "\n".join(
+        line for _, line in sorted(merged.items(), key=lambda item: item[0])
+    )
+    temporary = index.with_name(f".{index.name}.tmp")
+    await temporary.write_text("\n\n".join(paragraphs) + "\n", **OPEN_TEXT_OPTIONS)
+    await temporary.replace(index)
 
 
 async def archive(args: Args) -> ArchiveResult:
-    """Primary coroutine implementing the query-fetch-index flow.
+    """Run the query-fetch-index flow and report what it achieved.
 
-    Executes the following steps:
-    1. Query Wikimedia Commons for page and image metadata for requested inputs.
-    2. Fetch image binary content for the discovered pages.
-    3. Optionally update a Markdown index file using `_index_formatter`.
-
-    Returns an ``ArchiveResult`` with download/skip counts and any errors
-    encountered during the operation. Does not call ``exit()``.
+    Query and fetch failures are collected per item, so a failure never hides
+    the files that did transfer. Returns an ``ArchiveResult`` with the download
+    and skip counts plus every error; does not call ``exit()``.
     """
     downloaded = 0
     skipped = 0
@@ -236,12 +380,16 @@ async def archive(args: Args) -> ArchiveResult:
     try:
         inputs = tuple(dict.fromkeys(args.inputs))
         async with ClientSession(
-            connector=TCPConnector(limit_per_host=1),
+            connector=TCPConnector(limit_per_host=_MAX_CONCURRENT_REQUESTS_PER_HOST),
             headers={
                 "Accept-Encoding": "gzip",
                 "User-Agent": USER_AGENT,
             },
-            timeout=ClientTimeout(total=args.request_timeout),
+            timeout=ClientTimeout(
+                total=None,
+                sock_connect=args.request_timeout,
+                sock_read=args.request_timeout,
+            ),
             trust_env=args.trust_env,
         ) as raw_sess:
             sess = RetryClient(
@@ -251,134 +399,106 @@ async def archive(args: Args) -> ArchiveResult:
                     start_timeout=args.retry_delay,
                     max_timeout=30.0,
                     statuses={429},
+                    exceptions={ClientConnectionError, ClientPayloadError},
                 ),
                 raise_for_status=False,
             )
             try:
                 LOGGER.info(f"Querying {len(inputs)} files")
-
-                query_svs: list[SoonValue[Iterable[tuple[str, Page]]]] = []
+                query_svs: list[
+                    SoonValue[tuple[list[tuple[str, Page]], list[ArchiveError]]]
+                ] = []
                 async with create_task_group() as tg:
                     for idx in range(0, len(inputs), _QUERY_LIMIT):
                         query_svs.append(
-                            tg.soonify(_query)(
-                                sess, tuple(inputs[idx : idx + _QUERY_LIMIT])
+                            tg.soonify(_query_with_bisect)(
+                                sess,
+                                tuple(inputs[idx : idx + _QUERY_LIMIT]),
+                                bisect=args.bisect_queries,
                             )
                         )
-                queries = [sv.value for sv in query_svs]
-                queries, query_errors = _separate_results(queries, phase="query")
-                all_errors.extend(query_errors)
-                if not queries:
+                pages_by_id: dict[str, Page] = {}
+                for batch_pages, batch_errors in (sv.value for sv in query_svs):
+                    all_errors.extend(batch_errors)
+                    pages_by_id.update(batch_pages)
+                if not pages_by_id:
                     return ArchiveResult(
                         downloaded=0, skipped=0, errors=tuple(all_errors)
                     )
-                pages = tuple(
-                    {
-                        page_id: page for page_id, page in chain.from_iterable(queries)
-                    }.values()
-                )
+                pages = tuple(pages_by_id.values())
 
                 LOGGER.info(f"Fetching {len(pages)} files")
+                await args.dest.mkdir(parents=True, exist_ok=True)
+                targets, target_errors = _plan_targets(
+                    pages, dest=args.dest, sanitize=args.sanitize_filenames
+                )
+                all_errors.extend(target_errors)
 
-                async def fetch(page: Page) -> tuple[str, str, str, bool]:
-                    """Download the binary content for ``page``.
+                async def fetch(
+                    page: Page, dest_file: Path, *, display: str, filename: str
+                ) -> _Fetched | ArchiveError:
+                    """Run one fetch, converting a failure into reportable data."""
+                    try:
+                        return await _fetch_one(
+                            sess,
+                            page,
+                            dest_file,
+                            display=display,
+                            filename=filename,
+                            skip_existing=args.skip_existing,
+                        )
+                    except Exception as exc:
+                        LOGGER.warning("Error fetching '%s': %s", filename, exc)
+                        return ArchiveError(
+                            phase="fetch", title=display, message=str(exc)
+                        )
 
-                    Returns ``(page_title, filename, index_line, was_skipped)``.
-                    RetryClient handles HTTP retries (429, 5xx) at session level.
-                    """
-                    page_display = page.title.split(":", 1)[-1]
-                    filename = page_display
-                    if args.sanitize_filenames:
-                        filename = sanitize_filename(
-                            filename, platform="windows", replacement_text="_"
+                entries: list[tuple[str, str]] = []
+                aborted = False
+                if args.fail_fast:
+                    for page, display, filename, dest_file in targets:
+                        item = await fetch(
+                            page, dest_file, display=display, filename=filename
                         )
-                    if not filename or "/" in filename or filename in (".", ".."):
-                        raise ValueError(
-                            f"Invalid filename derived from title: '{page.title}'"
-                        )
-                    if page.imageinfo is None:
-                        raise ValueError(f"Failed to fetch '{filename}'")
-                    dest_path = args.dest
-                    await dest_path.mkdir(parents=True, exist_ok=True)
-                    dest_file = dest_path / filename
-                    if args.skip_existing and await dest_file.exists():
-                        LOGGER.info("Skipping existing '%s'", filename)
-                        credit = await asyncify(_credit_formatter)(page)
-                        index_line = await asyncify(_index_formatter)(
-                            filename, credit, display=page_display
-                        )
-                        return page_display, filename, index_line, True
-                    async with sess.get(page.imageinfo[0].url) as resp:
-                        if resp.status >= 400:
-                            raise ValueError(
-                                f"HTTP {resp.status} fetching '{filename}'"
+                        if isinstance(item, ArchiveError):
+                            all_errors.append(item)
+                            aborted = True
+                            LOGGER.warning("Aborted after the first fetch error")
+                            break
+                        if item.skipped:
+                            skipped += 1
+                        else:
+                            downloaded += 1
+                        entries.append((item.filename, item.index_line))
+                else:
+                    fetch_svs: list[SoonValue[_Fetched | ArchiveError]] = []
+                    async with create_task_group() as tg:
+                        for page, display, filename, dest_file in targets:
+                            fetch_svs.append(
+                                tg.soonify(fetch)(
+                                    page, dest_file, display=display, filename=filename
+                                )
                             )
-                        content_type = resp.content_type or ""
-                        if not content_type.startswith(
-                            ("image/", "application/octet-stream", "video/", "audio/")
-                        ):
-                            raise ValueError(
-                                f"Unexpected content-type {content_type!r} for '{filename}'"
-                            )
-                        LOGGER.info("Fetching '%s'", filename)
-                        async with await dest_file.open(mode="wb") as file:
-                            async for chunk in resp.content.iter_any():
-                                await file.write(chunk)
-                    credit = await asyncify(_credit_formatter)(page)
-                    index_line = await asyncify(_index_formatter)(
-                        filename, credit, display=page_display
-                    )
-                    return page_display, filename, index_line, False
-
-                if args.progress_callback is not None:
-                    args.progress_callback(0, len(pages))
-                fetch_svs: list[SoonValue[tuple[str, str, str, bool]]] = []
-                async with create_task_group() as tg:
-                    for page in pages:
-                        fetch_svs.append(tg.soonify(fetch)(page))
-                raw_entries = [sv.value for sv in fetch_svs]
-                entries: list[tuple[str, str, str]] = []
-                for page_title, filename, index_line, was_skipped in raw_entries:
-                    if was_skipped:
-                        skipped += 1
-                    else:
-                        downloaded += 1
-                    entries.append((page_title, filename, index_line))
-                if args.progress_callback is not None:
-                    args.progress_callback(downloaded, len(pages))
+                    for item in (sv.value for sv in fetch_svs):
+                        if isinstance(item, ArchiveError):
+                            all_errors.append(item)
+                            continue
+                        if item.skipped:
+                            skipped += 1
+                        else:
+                            downloaded += 1
+                        entries.append((item.filename, item.index_line))
 
                 if args.index is None:
                     LOGGER.info("Skipped indexing")
-                else:
+                elif entries and not aborted:
                     LOGGER.info(f"Indexing {len(entries)} files")
-                    idx = args.index
-                    await idx.parent.mkdir(parents=True, exist_ok=True)
                     try:
-                        file = await idx.open(mode="xt", **OPEN_TEXT_OPTIONS)
-                    except FileExistsError:
-                        pass
-                    else:
-                        await file.aclose()
-
-                    async with await idx.open(mode="r+t", **OPEN_TEXT_OPTIONS) as file:
-                        read = await file.read()
-                        await file.seek(0)
-                        paragraphs = read.strip().split("\n\n")
-                        index: dict[str, str] = {
-                            unquote(match[2]): match[0]
-                            for match in _INDEX_FORMAT_PATTERN.finditer(paragraphs[-1])
-                        }
-                        for page_title, _filename, entry in entries:
-                            index[page_title] = entry
-                        paragraphs[-1] = "\n".join(
-                            value
-                            for _, value in sorted(
-                                index.items(), key=lambda item: item[0]
-                            )
+                        await _update_index(args.index, entries)
+                    except OSError as exc:
+                        all_errors.append(
+                            ArchiveError(phase="index", title="", message=str(exc))
                         )
-                        text = "\n\n".join(paragraphs) + "\n"
-                        await file.write(text)
-                        await file.truncate()
             finally:
                 await sess.close()
     except Exception:

@@ -1,8 +1,8 @@
 """Tests for the `pyarchivist.types` module."""
 
-from __future__ import annotations
-
 import dataclasses
+
+from anyio import Path
 
 from pyarchivist import types as pyarchivist_types
 
@@ -45,3 +45,14 @@ def test_args_fields() -> None:
         "bisect_queries",
     }
     assert fields == expected
+
+
+def test_args_defaults() -> None:
+    """Verify a plain `Args` skips existing files and never fails fast."""
+    args = pyarchivist_types.Args(inputs=(), dest=Path("."), index=None)
+
+    assert args.skip_existing is True
+    assert args.sanitize_filenames is True
+    assert args.trust_env is True
+    assert args.fail_fast is False
+    assert args.bisect_queries is True

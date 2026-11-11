@@ -1,20 +1,28 @@
-"""Integration-style unit tests for `Wikimedia_Commons` flows.
+"""Flow tests for the Wikimedia_Commons query, fetch and index pipeline.
 
-These tests mock `aiohttp.ClientSession` at the module level to avoid network
-I/O and exercise the query -> fetch -> optional indexing code paths.
+The aiohttp client, its responses and the retry wrapper are replaced with small
+fakes that serve a page registry and one file body, so these tests stay offline
+and deterministic. Each test asserts the observable outcome: files on disk, the
+reported ``ArchiveResult`` errors, and the resulting exit code.
 """
 
 import json
 import re
 import string
 from argparse import _VersionAction
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from html import escape as html_escape
 from os import PathLike, fspath
-from typing import Any, cast, override
+from typing import Any, ClassVar, cast
 from urllib.parse import quote, unquote
 
 import pytest
+from aiohttp import (
+    ClientConnectionError,
+    ClientPayloadError,
+    ClientTimeout,
+    TCPConnector,
+)
 from anyio import Path, sleep
 from hypothesis import given
 from hypothesis import strategies as st
@@ -42,119 +50,149 @@ __all__ = ()
 
 
 class _FakeContent:
-    """Lightweight async content-like object exposing `iter_any()`."""
+    """Async content object that yields prepared chunks and can fail after them."""
 
-    def __init__(self, chunks: list[bytes]) -> None:
-        """Initialize with a list of byte chunks to yield."""
-        self._chunks: list[bytes] = chunks
+    def __init__(self, chunks: list[bytes], *, fail: bool = False) -> None:
+        """Store the chunks and whether the stream fails once they are exhausted."""
+        self._chunks = chunks
+        self._fail = fail
 
     async def iter_any(self) -> AsyncIterator[bytes]:
-        """Async iterator that yields configured byte chunks."""
-        for c in self._chunks:
+        """Yield the chunks one by one, raising afterwards when configured to fail."""
+        for chunk in self._chunks:
             await sleep(0)
-            yield c
+            yield chunk
+        if self._fail:
+            raise RuntimeError("stream error")
 
 
 class _FakeResp:
-    """Minimal async context manager mimicking parts of `aiohttp.Response`."""
+    """Minimal stand-in for an aiohttp response used by the flow."""
 
     def __init__(
         self,
         *,
         json_data: object | None = None,
-        content_chunks: list[bytes] | None = None,
+        text_data: str | None = None,
+        chunks: list[bytes] | None = None,
+        content_type: str = "image/jpeg",
+        status: int = 200,
+        fail_stream: bool = False,
     ) -> None:
-        """Store provided JSON payload and content chunks for reads."""
-        self._json: object | None = json_data
-        self.content: _FakeContent = _FakeContent(content_chunks or [])
-        self.status: int = 200
-        self.content_type: str = "image/jpeg"
-
-    async def json(self) -> object | None:
-        """Return the stored JSON-like payload."""
-        # mimic aiohttp.Response.json()
-        await sleep(0)
-        return self._json
+        """Store the payload, body chunks and response metadata."""
+        self._json = json_data
+        self._text = text_data
+        self.content = _FakeContent(chunks or [], fail=fail_stream)
+        self.content_type = content_type
+        self.status = status
 
     async def text(self) -> str:
-        """Return text; if JSON payload is present return its JSON string."""
-        # mimic aiohttp.Response.text(); return a JSON string when json data set
+        """Return the raw body text, falling back to the JSON payload."""
         await sleep(0)
-        return json.dumps(self._json) if self._json is not None else ""
+        if self._text is not None:
+            return self._text
+        return "" if self._json is None else json.dumps(self._json)
 
     async def __aenter__(self) -> "_FakeResp":
-        """Enter async context (no-op)."""
+        """Enter the response context."""
         return self
 
-    async def __aexit__(
-        self, exc_type: type | None, exc: BaseException | None, tb: object | None
-    ) -> bool:
-        """Exit async context (no-op)."""
+    async def __aexit__(self, *_exc: object) -> bool:
+        """Leave the response context without suppressing exceptions."""
         return False
 
 
 class _FakeClientSession:
-    """Fake client session implementing minimal `get` and async context API."""
+    """Fake session answering API queries and downloads from a page registry."""
 
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        """Initialize placeholders used by tests (api json and file bytes)."""
-        # will be filled by the test via attributes
-        self._api_json: dict[str, object] | None = None
-        self._file_bytes: bytes | None = None
+    def __init__(self, pages: dict[str, dict[str, object]] | None = None) -> None:
+        """Create a session that serves *pages* keyed by page title."""
+        self.pages = {} if pages is None else pages
+        self.failing_titles: set[str] = set()
+        self.api_status = 200
+        self.api_text: str | None = None
+        self.file_bytes = b""
+        self.content_type = "image/jpeg"
+        self.status = 200
+        self.fail_stream = False
+        self.file_error: Exception | None = None
+        self.file_fail_on: str | None = None
+        self.query_urls: list[str] = []
+        self.file_urls: list[str] = []
 
     async def __aenter__(self) -> "_FakeClientSession":
-        """Enter async context (no-op)."""
+        """Enter the session context."""
         return self
 
-    async def __aexit__(
-        self, exc_type: type | None, exc: BaseException | None, tb: object | None
-    ) -> bool:
-        """Exit async context (no-op)."""
+    async def __aexit__(self, *_exc: object) -> bool:
+        """Leave the session context without suppressing exceptions."""
         return False
 
-    def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
-        """Return a `_FakeResp` for API or file-download URLs."""
-        s = str(url)
-        if "api.php" in s:
-            return _FakeResp(json_data=self._api_json)
-        else:
-            # file download
-            fb = self._file_bytes
-            assert fb is not None
-            chunks: list[bytes] = [fb[i : i + 8] for i in range(0, len(fb), 8)]
-            return _FakeResp(content_chunks=chunks)
+    def get(self, url: object, *_args: object, **_kwargs: object) -> _FakeResp:
+        """Return the API payload or the file body for *url*."""
+        text = str(url)
+        if "api.php" in text:
+            return self._api_response(url)
+        self.file_urls.append(text)
+        if self.file_fail_on is not None and self.file_fail_on in text:
+            raise RuntimeError("network error")
+        if self.file_error is not None:
+            raise self.file_error
+        return _FakeResp(
+            chunks=[self.file_bytes] if self.file_bytes else [],
+            content_type=self.content_type,
+            status=self.status,
+            fail_stream=self.fail_stream,
+        )
+
+    def _api_response(self, url: object) -> _FakeResp:
+        """Build the API response for the titles named in *url*.
+
+        A registry title counts as requested when it appears in the decoded
+        ``titles`` value; splitting that value on ``|`` would break titles that
+        contain the separator themselves.
+        """
+        self.query_urls.append(str(url))
+        parsed = url if isinstance(url, URL) else URL(str(url))
+        titles = parsed.query["titles"]
+        if any(title in titles for title in self.failing_titles):
+            raise RuntimeError("api failure")
+        if self.api_text is not None:
+            return _FakeResp(text_data=self.api_text, status=self.api_status)
+        requested = {
+            str(index): page
+            for index, (title, page) in enumerate(self.pages.items(), start=1)
+            if title in titles
+        }
+        return _FakeResp(
+            json_data={"query": {"pages": requested}}, status=self.api_status
+        )
 
     async def request(
         self, method: str, url: object, *args: object, **kwargs: object
     ) -> _FakeResp:
-        """Dispatch ``request`` calls (used by RetryClient) to ``get``."""
+        """Dispatch the retry client's ``request`` call to ``get``."""
         if method.upper() == "GET":
             return self.get(url, *args, **kwargs)
         raise NotImplementedError(f"Unsupported method: {method}")
 
     async def close(self) -> None:
-        """No-op close required by RetryClient."""
+        """Close nothing; the fake owns no resources."""
 
 
 class _PassthroughRetryClient:
-    """Bypass RetryClient; return the underlying session directly."""
+    """Bypass RetryClient and hand requests straight to the fake session."""
 
     def __init__(
         self, *, client_session: _FakeClientSession | None = None, **_kwargs: object
     ) -> None:
-        """Store the raw session for passthrough."""
-        self._client: _FakeClientSession = client_session or _FakeClientSession()
-
-    async def __aenter__(self) -> _FakeClientSession:
-        """Return the raw fake session."""
-        return self._client
-
-    async def __aexit__(self, *args: object) -> bool:
-        """No-op exit."""
-        return False
+        """Keep the raw session this wrapper forwards to."""
+        self._client = (
+            _FakeClientSession() if client_session is None else client_session
+        )
 
     def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
-        """Delegate ``get`` to the underlying fake session."""
+        """Forward ``get`` to the underlying session."""
         return self._client.get(url, *args, **kwargs)
 
     async def close(self) -> None:
@@ -162,72 +200,471 @@ class _PassthroughRetryClient:
         await self._client.close()
 
 
+class _CapturingClientSession:
+    """Fake session that records the constructor kwargs the flow passes."""
+
+    captured: ClassVar[dict[str, object]] = {}
+
+    def __init__(self, *_args: object, **kwargs: object) -> None:
+        """Record every keyword argument for later assertions."""
+        _CapturingClientSession.captured.clear()
+        _CapturingClientSession.captured.update(kwargs)
+
+    async def __aenter__(self) -> "_CapturingClientSession":
+        """Enter the session context."""
+        return self
+
+    async def __aexit__(self, *_exc: object) -> bool:
+        """Leave the session context without suppressing exceptions."""
+        return False
+
+    def get(self, _url: object, *_args: object, **_kwargs: object) -> object:
+        """Fail every request; these tests inspect configuration only."""
+        raise RuntimeError("no network in configuration tests")
+
+    async def close(self) -> None:
+        """Close nothing; the fake owns no resources."""
+
+
 @pytest.fixture(autouse=True)
 def _patch_retry_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Replace RetryClient with a passthrough for all tests in this module."""
+    """Replace RetryClient with a passthrough for every test in this module."""
     monkeypatch.setattr(
         "pyarchivist.Wikimedia_Commons.main.RetryClient", _PassthroughRetryClient
     )
+
+
+def _patch_client(monkeypatch: pytest.MonkeyPatch, session: object) -> None:
+    """Make the flow reuse *session* instead of a real ``ClientSession``."""
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.main.ClientSession",
+        lambda *_args, **_kwargs: session,
+    )
+
+
+def _patch_session_class(
+    monkeypatch: pytest.MonkeyPatch, factory: Callable[..., object]
+) -> None:
+    """Make the flow construct its session through *factory*."""
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main.ClientSession", factory)
+
+
+def _page(
+    title: str,
+    *,
+    mime: str | None = None,
+    size: int | None = None,
+    extmetadata: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Return one API page payload carrying a single imageinfo entry."""
+    info: dict[str, object] = {
+        "descriptionurl": f"https://commons.wikimedia.org/wiki/{title}",
+        "url": f"https://upload.wikimedia.org/{title.split(':', 1)[-1]}",
+        "extmetadata": {} if extmetadata is None else extmetadata,
+    }
+    if mime is not None:
+        info["mime"] = mime
+    if size is not None:
+        info["size"] = size
+    return {"title": title, "imageinfo": [info]}
+
+
+async def _names(dest: PathLike[str]) -> list[str]:
+    """Return the sorted names of the directory entries in *dest*."""
+    return sorted([entry.name async for entry in Path(dest).iterdir()])
 
 
 @pytest.mark.anyio
 async def test_query_and_fetch_writes_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
-    """Full flow: query returns metadata and a subsequent fetch writes the file."""
-    fake_sess = _FakeClientSession()
-
-    # sample API response matching the models used by the code
-    fake_sess._api_json = {
-        "query": {
-            "pages": {
-                "1": {
-                    "title": "File:Example.jpg",
-                    "imageinfo": [
-                        {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Example.jpg",
-                            "url": "https://upload.wikimedia.org/example.jpg",
-                            "extmetadata": {
-                                "Artist": {"value": "Jane Doe", "source": ""},
-                                "LicenseShortName": {
-                                    "value": "CC BY-SA 4.0",
-                                    "source": "",
-                                },
-                                "LicenseUrl": {
-                                    "value": "https://creativecommons.org/licenses/by-sa/4.0/",
-                                    "source": "",
-                                },
-                            },
-                        }
-                    ],
-                }
-            }
+    """The query result is downloaded under the title-derived filename."""
+    session = _FakeClientSession(
+        {
+            "File:Example.jpg": _page(
+                "File:Example.jpg",
+                extmetadata={
+                    "Artist": {"value": "Jane Doe", "source": ""},
+                    "LicenseShortName": {"value": "CC BY-SA 4.0", "source": ""},
+                    "LicenseUrl": {
+                        "value": "https://creativecommons.org/licenses/by-sa/4.0/",
+                        "source": "",
+                    },
+                },
+            )
         }
-    }
+    )
+    session.file_bytes = b"\x00\x01binarycontent"
+    _patch_client(monkeypatch, session)
 
-    file_bytes = b"\x00\x01binarycontent"
-    fake_sess._file_bytes = file_bytes
-
-    def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return the configured fake session for the test."""
-        return fake_sess
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
+    result = await archive(
+        Args(inputs=("File:Example.jpg",), dest=Path(tmp_path), index=None)
     )
 
-    args: Args = Args(
-        inputs=("File:Example.jpg",),
+    assert result.downloaded == 1
+    assert await (Path(tmp_path) / "Example.jpg").read_bytes() == session.file_bytes
+
+
+@pytest.mark.anyio
+async def test_query_requests_mime_and_size(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """``iiprop`` asks for the MIME type and size that downloads are checked on."""
+    session = _FakeClientSession({"File:A.jpg": _page("File:A.jpg")})
+    session.file_bytes = b"a"
+    _patch_client(monkeypatch, session)
+
+    await archive(Args(inputs=("File:A.jpg",), dest=Path(tmp_path), index=None))
+
+    assert len(session.query_urls) == 1
+    iiprop = set(URL(session.query_urls[0]).query["iiprop"].split("|"))
+    assert {"mime", "size"} <= iiprop
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("content_type", ["application/ogg", "video/ogg", "audio/ogg"])
+async def test_ogg_content_types_are_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: PathLike[str],
+    content_type: str,
+) -> None:
+    """Ogg media is accepted whatever ogg content type the server chooses."""
+    session = _FakeClientSession(
+        {"File:A.ogv": _page("File:A.ogv", mime="application/ogg", size=8)}
+    )
+    session.file_bytes = b"OggSdata"
+    session.content_type = content_type
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(inputs=("File:A.ogv",), dest=Path(tmp_path), index=None)
+    )
+
+    assert result.downloaded == 1
+    assert result.errors == ()
+    assert await (Path(tmp_path) / "A.ogv").read_bytes() == b"OggSdata"
+
+
+@pytest.mark.anyio
+async def test_html_error_page_is_rejected_and_leaves_no_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """An HTML error document is never written under a media filename."""
+    session = _FakeClientSession({"File:A.jpg": _page("File:A.jpg", size=999)})
+    session.file_bytes = b"<html></html>"
+    session.content_type = "text/html"
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(inputs=("File:A.jpg",), dest=Path(tmp_path), index=None)
+    )
+
+    assert result.downloaded == 0
+    assert [error.phase for error in result.errors] == ["fetch"]
+    assert "content-type" in result.errors[0].message
+    assert await _names(tmp_path) == []
+
+
+@pytest.mark.anyio
+async def test_size_mismatch_is_rejected_and_leaves_no_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A body shorter than the API size is a failed download, not a file."""
+    session = _FakeClientSession(
+        {"File:A.jpg": _page("File:A.jpg", mime="image/jpeg", size=1000)}
+    )
+    session.file_bytes = b"short"
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(inputs=("File:A.jpg",), dest=Path(tmp_path), index=None)
+    )
+
+    assert result.downloaded == 0
+    assert "Size mismatch" in result.errors[0].message
+    assert await _names(tmp_path) == []
+
+
+@pytest.mark.anyio
+async def test_stream_failure_leaves_no_partial_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A body that fails mid-stream leaves neither the target nor its ``.part``."""
+    session = _FakeClientSession({"File:A.jpg": _page("File:A.jpg")})
+    session.file_bytes = b"partial"
+    session.fail_stream = True
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(inputs=("File:A.jpg",), dest=Path(tmp_path), index=None)
+    )
+
+    assert result.downloaded == 0
+    assert [error.phase for error in result.errors] == ["fetch"]
+    assert await _names(tmp_path) == []
+
+
+@pytest.mark.anyio
+async def test_existing_file_of_wrong_size_is_redownloaded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A stored file whose size differs from the API size is fetched again."""
+    target = Path(tmp_path) / "A.jpg"
+    await target.write_bytes(b"x")
+    session = _FakeClientSession({"File:A.jpg": _page("File:A.jpg", size=5)})
+    session.file_bytes = b"12345"
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(inputs=("File:A.jpg",), dest=Path(tmp_path), index=None)
+    )
+
+    assert (result.downloaded, result.skipped) == (1, 0)
+    assert await target.read_bytes() == b"12345"
+
+
+@pytest.mark.anyio
+async def test_existing_file_of_exact_size_is_skipped(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """Skipping is the default and trusts only a file of the reported size."""
+    target = Path(tmp_path) / "A.jpg"
+    await target.write_bytes(b"12345")
+    session = _FakeClientSession({"File:A.jpg": _page("File:A.jpg", size=5)})
+    session.file_bytes = b"12345"
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(inputs=("File:A.jpg",), dest=Path(tmp_path), index=None)
+    )
+
+    assert (result.downloaded, result.skipped) == (0, 1)
+    assert session.file_urls == []
+
+
+@pytest.mark.anyio
+async def test_fetch_isolates_failures_and_keeps_successes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """One broken page does not discard the file that did transfer."""
+    session = _FakeClientSession(
+        {
+            "File:Good.jpg": _page("File:Good.jpg"),
+            "File:Bad.jpg": {"title": "File:Bad.jpg", "imageinfo": None},
+        }
+    )
+    session.file_bytes = b"good-bytes"
+    _patch_client(monkeypatch, session)
+
+    index_path = Path(tmp_path) / "index.md"
+    result = await archive(
+        Args(
+            inputs=("File:Good.jpg", "File:Bad.jpg"),
+            dest=Path(tmp_path),
+            index=index_path,
+        )
+    )
+
+    assert result.downloaded == 1
+    assert [(error.phase, error.title) for error in result.errors] == [
+        ("fetch", "Bad.jpg")
+    ]
+    assert await (Path(tmp_path) / "Good.jpg").exists()
+    content = await index_path.read_text(encoding="utf-8")
+    assert "Good.jpg" in content
+    assert "Bad.jpg" not in content
+
+
+@pytest.mark.anyio
+async def test_filename_collision_is_reported_and_not_written(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """Two titles sanitizing to one filename become one file plus one error."""
+    session = _FakeClientSession(
+        {
+            "File:A*B.jpg": _page("File:A*B.jpg"),
+            "File:A?B.jpg": _page("File:A?B.jpg"),
+        }
+    )
+    session.file_bytes = b"collision"
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(inputs=("File:A*B.jpg", "File:A?B.jpg"), dest=Path(tmp_path), index=None)
+    )
+
+    assert await _names(tmp_path) == ["A_B.jpg"]
+    assert result.downloaded == 1
+    assert len(result.errors) == 1
+    assert "already used by 'File:A*B.jpg'" in result.errors[0].message
+
+
+@pytest.mark.anyio
+async def test_fail_fast_stops_after_first_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """``fail_fast`` abandons the rest of the run and skips the index update."""
+    session = _FakeClientSession(
+        {
+            "File:One.jpg": _page("File:One.jpg"),
+            "File:Two.jpg": _page("File:Two.jpg"),
+            "File:Three.jpg": _page("File:Three.jpg"),
+        }
+    )
+    session.file_bytes = b"data"
+    session.file_fail_on = "Two.jpg"
+    _patch_client(monkeypatch, session)
+
+    index_path = Path(tmp_path) / "index.md"
+    result = await archive(
+        Args(
+            inputs=("File:One.jpg", "File:Two.jpg", "File:Three.jpg"),
+            dest=Path(tmp_path),
+            index=index_path,
+            fail_fast=True,
+        )
+    )
+
+    assert await _names(tmp_path) == ["One.jpg"]
+    assert not await index_path.exists()
+    assert (result.downloaded, result.skipped) == (1, 0)
+    assert [error.phase for error in result.errors] == ["fetch"]
+
+
+@pytest.mark.anyio
+async def test_missing_page_reports_does_not_exist(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A page reported missing explains that the title does not exist."""
+    session = _FakeClientSession(
+        {"File:No.jpg": {"title": "File:No.jpg", "missing": ""}}
+    )
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(inputs=("File:No.jpg",), dest=Path(tmp_path), index=None)
+    )
+
+    assert len(result.errors) == 1
+    assert "does not exist" in result.errors[0].message
+    assert "not a valid title" not in result.errors[0].message
+
+
+@pytest.mark.anyio
+async def test_invalid_title_reports_invalid_title(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A rejected title reports the API reason instead of a fetch failure."""
+    session = _FakeClientSession(
+        {"File:?|": {"title": "File:?|", "invalidreason": "bad title"}}
+    )
+    _patch_client(monkeypatch, session)
+
+    result = await archive(Args(inputs=("File:?|",), dest=Path(tmp_path), index=None))
+
+    assert len(result.errors) == 1
+    assert "not a valid title" in result.errors[0].message
+    assert "bad title" in result.errors[0].message
+    assert "does not exist" not in result.errors[0].message
+
+
+@pytest.mark.anyio
+async def test_index_merge_is_keyed_by_filename_not_display(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A sanitized title keeps one index line across repeated runs."""
+    session = _FakeClientSession({"File:A?B.jpg": _page("File:A?B.jpg")})
+    session.file_bytes = b"data"
+    _patch_client(monkeypatch, session)
+
+    index_path = Path(tmp_path) / "index.md"
+    args = Args(
+        inputs=("File:A?B.jpg",),
         dest=Path(tmp_path),
-        index=None,
+        index=index_path,
         skip_existing=False,
     )
+    await archive(args)
+    await archive(args)
 
-    await main(args)
+    lines = (await index_path.read_text(encoding="utf-8")).splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith("- [A?B.jpg](A_B.jpg): ")
 
-    out: Path = Path(tmp_path) / "Example.jpg"
-    assert await out.exists()
-    assert await out.read_bytes() == file_bytes
+
+@pytest.mark.anyio
+async def test_index_write_replaces_the_file_atomically(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """The index is written to a sibling temp file and then replaced."""
+    session = _FakeClientSession({"File:A.jpg": _page("File:A.jpg")})
+    session.file_bytes = b"data"
+    _patch_client(monkeypatch, session)
+
+    replaced: list[tuple[str, str]] = []
+    original = cast(Any, Path.replace)
+
+    async def recording_replace(self: Path, target: Path) -> Path:
+        """Record the replacement pair and delegate to the real method."""
+        replaced.append((self.name, target.name))
+        return await original(self, target)
+
+    monkeypatch.setattr(Path, "replace", recording_replace)
+
+    index_path = Path(tmp_path) / "index.md"
+    await archive(Args(inputs=("File:A.jpg",), dest=Path(tmp_path), index=index_path))
+
+    assert (".index.md.tmp", "index.md") in replaced
+    assert not await (Path(tmp_path) / ".index.md.tmp").exists()
+    assert await index_path.exists()
+
+
+@pytest.mark.anyio
+async def test_index_write_error_sets_index_and_generic_flags(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A failed index write is reported while the downloaded file survives."""
+    session = _FakeClientSession({"File:A.jpg": _page("File:A.jpg")})
+    session.file_bytes = b"ok"
+    _patch_client(monkeypatch, session)
+
+    original = cast(Any, Path.replace)
+
+    async def failing_replace(self: Path, target: Path) -> Path:
+        """Fail only for the index temp file, leaving downloads untouched."""
+        if self.name == ".index.md.tmp":
+            raise OSError("index replace failure")
+        return await original(self, target)
+
+    monkeypatch.setattr(Path, "replace", failing_replace)
+
+    code = await main(
+        Args(
+            inputs=("File:A.jpg",),
+            dest=Path(tmp_path),
+            index=Path(tmp_path) / "index.md",
+        )
+    )
+
+    assert await (Path(tmp_path) / "A.jpg").exists()
+    assert code & ExitCode.INDEX_ERROR
+    assert code & ExitCode.GENERIC_ERROR
+
+
+@pytest.mark.anyio
+async def test_index_file_created_when_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A missing index file and its directory are created before writing."""
+    session = _FakeClientSession({"File:New.jpg": _page("File:New.jpg")})
+    session.file_bytes = b"data"
+    _patch_client(monkeypatch, session)
+
+    index_path = Path(tmp_path) / "subdir" / "index.md"
+    await archive(Args(inputs=("File:New.jpg",), dest=Path(tmp_path), index=index_path))
+
+    assert await index_path.exists()
+    assert "New.jpg" in await index_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.anyio
@@ -237,14 +674,18 @@ async def test_query_and_fetch_writes_file(
         (
             "Header\n\n",
             [
-                '- [Zed.jpg](Zed.jpg): <a href="https://commons.wikimedia.org/wiki/File:Zed.jpg">See page for author</a>, See page for license, via Wikimedia Commons'
+                '- [Zed.jpg](Zed.jpg): <a href="https://commons.wikimedia.org/wiki/'
+                'File:Zed.jpg">See page for author</a>, See page for license, '
+                "via Wikimedia Commons"
             ],
         ),
         (
             "Header\n\n- [Existing](Existing): Existing credit\n",
             [
                 "- [Existing](Existing): Existing credit",
-                '- [Zed.jpg](Zed.jpg): <a href="https://commons.wikimedia.org/wiki/File:Zed.jpg">See page for author</a>, See page for license, via Wikimedia Commons',
+                '- [Zed.jpg](Zed.jpg): <a href="https://commons.wikimedia.org/wiki/'
+                'File:Zed.jpg">See page for author</a>, See page for license, '
+                "via Wikimedia Commons",
             ],
         ),
     ],
@@ -255,154 +696,574 @@ async def test_indexing_updates_index_file(
     initial_index: str,
     expected_lines: list[str],
 ) -> None:
-    """When indexing, update or create the index paragraph while preserving header."""
-    fake_sess = _FakeClientSession()
+    """Indexing updates the last paragraph and keeps earlier paragraphs."""
+    session = _FakeClientSession({"File:Zed.jpg": _page("File:Zed.jpg")})
+    session.file_bytes = b"file-contents"
+    _patch_client(monkeypatch, session)
 
-    fake_sess._api_json = {
-        "query": {
-            "pages": {
-                "1": {
-                    "title": "File:Zed.jpg",
-                    "imageinfo": [
-                        {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Zed.jpg",
-                            "url": "https://upload.wikimedia.org/zed.jpg",
-                            "extmetadata": {},
-                        }
-                    ],
-                }
-            }
-        }
-    }
-
-    fake_sess._file_bytes = b"file-contents"
-
-    def _client_session_factory_2(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return prepared fake session for indexing test."""
-        return fake_sess
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory_2
-    )
-
-    # write the parametrized initial index content
-    index_path: Path = Path(tmp_path) / "index.md"
+    index_path = Path(tmp_path) / "index.md"
     await index_path.write_text(initial_index, encoding="utf-8")
 
-    args: Args = Args(
-        inputs=("File:Zed.jpg",),
-        dest=Path(tmp_path),
-        index=Path(index_path),
-    )
+    await archive(Args(inputs=("File:Zed.jpg",), dest=Path(tmp_path), index=index_path))
 
-    await main(args)
-
-    text: str = await index_path.read_text(encoding="utf-8")
+    text = await index_path.read_text(encoding="utf-8")
     paragraphs = text.strip().split("\n\n")
-
-    # When the initial index already contained entries, the header paragraph
-    # should be preserved and the last paragraph updated. Otherwise the
-    # implementation replaces the last paragraph (so a header-only file will
-    # be replaced by the index paragraph).
     if "- [" in initial_index:
         assert paragraphs[0].startswith("Header")
-        lines = paragraphs[-1].splitlines()
-        assert lines == sorted(expected_lines)
+        assert paragraphs[-1].splitlines() == sorted(expected_lines)
     else:
-        # header-only file — result should be a single paragraph with index lines
         assert paragraphs == expected_lines
 
 
 @pytest.mark.anyio
-async def test_fetch_partial_error_is_swallowed_with_ignore_flag_and_sets_partial_exit_code(
+async def test_indexing_merges_percent_encoded_existing_entry(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
-    """When one page lacks imageinfo and --ignore-individual-errors is set the
-    fetch stage should swallow the individual error and set FETCH_ERROR_PARTIAL.
-    """
-    fake_sess = _FakeClientSession()
+    """A percent-encoded link target is matched instead of duplicated."""
+    session = _FakeClientSession({"File:a]b": _page("File:a]b")})
+    session.file_bytes = b"d"
+    _patch_client(monkeypatch, session)
 
-    # Two pages: one valid, one with missing imageinfo
-    fake_sess._api_json = {
-        "query": {
-            "pages": {
-                "1": {
-                    "title": "File:Good.jpg",
-                    "imageinfo": [
-                        {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Good.jpg",
-                            "url": "https://upload.wikimedia.org/good.jpg",
-                            "extmetadata": {},
-                        }
-                    ],
-                },
-                "2": {"title": "File:Bad.jpg", "imageinfo": None},
-            }
-        }
-    }
-
-    fake_sess._file_bytes = b"good-bytes"
-
-    def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return the prepared fake session for the fetch-partial test."""
-        return fake_sess
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
+    index_path = Path(tmp_path) / "index.md"
+    await index_path.write_text(
+        "Header\n\n- [a\\]b](a%5Db): Old credit\n- [Other](Other): Other credit\n",
+        encoding="utf-8",
     )
 
-    args: Args = Args(
-        inputs=("File:Good.jpg", "File:Bad.jpg"),
-        dest=Path(tmp_path),
-        index=None,
-        max_retries=0,
-    )
+    await archive(Args(inputs=("File:a]b",), dest=Path(tmp_path), index=index_path))
 
-    ec = await main(args)
-
-    # With the new RetryClient-based error handling, the failed fetch for
-    # Bad.jpg propagates through the TaskGroup; no files are written.
-    out: Path = Path(tmp_path) / "Good.jpg"
-    assert not await out.exists()
-
-    assert isinstance(ec, ExitCode)
-    assert bool(ec & ExitCode.GENERIC_ERROR)
+    last = (await index_path.read_text(encoding="utf-8")).strip().split("\n\n")[-1]
+    assert "Old credit" not in last
+    assert "a]b" in last
+    assert "Other credit" in last
 
 
 @pytest.mark.anyio
-async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
+async def test_main_deduplicates_inputs(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
-    """If an individual fetch error occurs and errors aren't ignored the
-    overall exit code should include FETCH_ERROR.
-    """
-    fake_sess = _FakeClientSession()
+    """Repeated input titles are queried and downloaded only once."""
+    session = _FakeClientSession({"File:Single.jpg": _page("File:Single.jpg")})
+    session.file_bytes = b"abc"
+    _patch_client(monkeypatch, session)
 
-    fake_sess._api_json = {
-        "query": {"pages": {"1": {"title": "File:Bad.jpg", "imageinfo": None}}}
-    }
-
-    def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return the fake session containing the bad API payload."""
-        return fake_sess
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
+    result = await archive(
+        Args(
+            inputs=("File:Single.jpg", "File:Single.jpg"),
+            dest=Path(tmp_path),
+            index=None,
+        )
     )
 
-    args: Args = Args(
-        inputs=("File:Bad.jpg",),
+    assert len(session.query_urls) == 1
+    assert result.downloaded == 1
+    assert await (Path(tmp_path) / "Single.jpg").read_bytes() == b"abc"
+
+
+@pytest.mark.anyio
+async def test_query_batching_respects_query_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """Titles are queried in batches of ``_QUERY_LIMIT``."""
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main._QUERY_LIMIT", 1)
+    session = _FakeClientSession(
+        {
+            "File:First.jpg": _page("File:First.jpg"),
+            "File:Second.jpg": _page("File:Second.jpg"),
+        }
+    )
+    session.file_bytes = b"x"
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(
+            inputs=("File:First.jpg", "File:Second.jpg"),
+            dest=Path(tmp_path),
+            index=None,
+        )
+    )
+
+    assert len(session.query_urls) == 2
+    assert result.downloaded == 2
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["malformed_json", "http_error"])
+async def test_query_failures_set_query_and_generic_flags(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str], mode: str
+) -> None:
+    """An invalid payload and an HTTP error both surface as query errors."""
+    session = _FakeClientSession({"File:Broken.jpg": _page("File:Broken.jpg")})
+    if mode == "malformed_json":
+        session.api_text = '{"query": {"pages": {"1": {"title": 1}}}}'
+    else:
+        session.api_status = 500
+    _patch_client(monkeypatch, session)
+
+    code = await main(
+        Args(inputs=("File:Broken.jpg",), dest=Path(tmp_path), index=None)
+    )
+
+    assert await _names(tmp_path) == []
+    assert code & ExitCode.QUERY_ERROR_PARTIAL
+    assert code & ExitCode.GENERIC_ERROR
+
+
+@pytest.mark.anyio
+async def test_query_bisect_isolates_failing_title(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A failing title is isolated from the batch-mates it shared a query with."""
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main._QUERY_LIMIT", 3)
+    session = _FakeClientSession(
+        {
+            "File:First.jpg": _page("File:First.jpg"),
+            "File:Second.jpg": _page("File:Second.jpg"),
+        }
+    )
+    session.failing_titles = {"File:Bad.jpg"}
+    session.file_bytes = b"x"
+    _patch_client(monkeypatch, session)
+
+    args = Args(
+        inputs=("File:First.jpg", "File:Second.jpg", "File:Bad.jpg"),
         dest=Path(tmp_path),
         index=None,
-        max_retries=0,
+    )
+    result = await archive(args)
+
+    assert [(error.phase, error.title) for error in result.errors] == [
+        ("query", "File:Bad.jpg")
+    ]
+    assert result.downloaded == 2
+    assert await _names(tmp_path) == ["First.jpg", "Second.jpg"]
+
+    code = await main(args)
+    assert code & ExitCode.QUERY_ERROR_PARTIAL
+
+
+@pytest.mark.anyio
+async def test_query_bisect_disabled_reports_one_batch_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """Without bisecting, a failed batch is reported as a single error."""
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main._QUERY_LIMIT", 3)
+    session = _FakeClientSession(
+        {
+            "File:First.jpg": _page("File:First.jpg"),
+            "File:Second.jpg": _page("File:Second.jpg"),
+        }
+    )
+    session.failing_titles = {"File:Bad.jpg"}
+    session.file_bytes = b"x"
+    _patch_client(monkeypatch, session)
+
+    args = Args(
+        inputs=("File:First.jpg", "File:Second.jpg", "File:Bad.jpg"),
+        dest=Path(tmp_path),
+        index=None,
+        bisect_queries=False,
+    )
+    result = await archive(args)
+
+    assert [error.phase for error in result.errors] == ["query"]
+    assert result.errors[0].title == "File:First.jpg, File:Second.jpg, File:Bad.jpg"
+    assert result.downloaded == 0
+    assert await _names(tmp_path) == []
+
+    code = await main(args)
+    assert code & ExitCode.QUERY_ERROR_PARTIAL
+
+
+@pytest.mark.anyio
+async def test_sanitize_filenames_replaces_quote(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A quote in the title is replaced when sanitizing is on."""
+    session = _FakeClientSession(
+        {'File:File with "quotes".jpg': _page('File:File with "quotes".jpg')}
+    )
+    session.file_bytes = b"img"
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(inputs=('File:File with "quotes".jpg',), dest=Path(tmp_path), index=None)
     )
 
-    ec = await main(args)
+    written = [p async for p in Path(tmp_path).iterdir()]
+    assert len(written) == 1
+    assert '"' not in written[0].name
+    assert result.downloaded == 1
 
-    # With the new RetryClient-based error handling, fetch errors propagate
-    # through the TaskGroup and are caught as a general error.
-    assert isinstance(ec, ExitCode)
-    assert bool(ec & ExitCode.GENERIC_ERROR)
+
+@pytest.mark.anyio
+async def test_sanitize_filenames_false_preserves_original(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """With sanitizing off the title-derived filename is kept as is."""
+    session = _FakeClientSession(
+        {'File:File with "quotes".jpg': _page('File:File with "quotes".jpg')}
+    )
+    session.file_bytes = b"img"
+    _patch_client(monkeypatch, session)
+
+    await archive(
+        Args(
+            inputs=('File:File with "quotes".jpg',),
+            dest=Path(tmp_path),
+            index=None,
+            sanitize_filenames=False,
+        )
+    )
+
+    written = [p async for p in Path(tmp_path).iterdir()]
+    assert len(written) == 1
+    assert '"' in written[0].name
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "title,expected_name",
+    [
+        ("File:Asterisk*.jpg", "Asterisk_.jpg"),
+        ("File:Question?.jpg", "Question_.jpg"),
+        ("File:Angle<>.jpg", "Angle__.jpg"),
+        ("File:Pipe|.jpg", "Pipe_.jpg"),
+    ],
+)
+async def test_sanitize_filenames_various_illegal_chars(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: PathLike[str],
+    title: str,
+    expected_name: str,
+) -> None:
+    """Each Windows-illegal character becomes an underscore."""
+    session = _FakeClientSession({title: _page(title)})
+    session.file_bytes = b"x"
+    _patch_client(monkeypatch, session)
+
+    await archive(Args(inputs=(title,), dest=Path(tmp_path), index=None))
+
+    assert await _names(tmp_path) == [expected_name]
+
+
+@pytest.mark.anyio
+async def test_sanitize_filenames_index_uses_unsanitized_display(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """The index link text keeps the unsanitized title."""
+    title = 'File:A "quoted" name.jpg'
+    session = _FakeClientSession({title: _page(title)})
+    session.file_bytes = b"img"
+    _patch_client(monkeypatch, session)
+
+    index_path = Path(tmp_path) / "index.md"
+    await archive(Args(inputs=(title,), dest=Path(tmp_path), index=index_path))
+
+    content = await index_path.read_text(encoding="utf-8")
+    assert 'A "quoted" name.jpg' in content
+    assert "A%20_quoted_%20name.jpg" in content
+
+
+@pytest.mark.anyio
+async def test_skip_existing_after_sanitize(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A second run skips the file the sanitized name already points at."""
+    session = _FakeClientSession({"File:A?B.jpg": _page("File:A?B.jpg")})
+    session.file_bytes = b"data"
+    _patch_client(monkeypatch, session)
+
+    args = Args(inputs=("File:A?B.jpg",), dest=Path(tmp_path), index=None)
+
+    first = await archive(args)
+    second = await archive(args)
+
+    assert (first.downloaded, first.skipped) == (1, 0)
+    assert (second.downloaded, second.skipped) == (0, 1)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "scenario,expected_written,expected_flags,expected_downloaded",
+    [
+        ("missing_imageinfo", [], (ExitCode.FETCH_ERROR_PARTIAL,), 0),
+        (
+            "missing_imageinfo_partial",
+            ["Good.jpg"],
+            (ExitCode.FETCH_ERROR_PARTIAL,),
+            1,
+        ),
+        ("network_error", ["Good.jpg"], (ExitCode.FETCH_ERROR_PARTIAL,), 1),
+        ("stream_error", [], (ExitCode.FETCH_ERROR_PARTIAL,), 0),
+        ("timeout", [], (ExitCode.FETCH_ERROR_PARTIAL,), 0),
+        ("http_error", [], (ExitCode.FETCH_ERROR_PARTIAL,), 0),
+        ("corrupt_chunks", ["Corrupt.jpg"], (), 1),
+    ],
+)
+async def test_fetch_error_variants(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: PathLike[str],
+    scenario: str,
+    expected_written: list[str],
+    expected_flags: tuple[ExitCode, ...],
+    expected_downloaded: int,
+) -> None:
+    """Fetch failures are reported per file; intact bodies still land."""
+    session, inputs = _scenario_client(scenario)
+    _patch_client(monkeypatch, session)
+    args = Args(
+        inputs=inputs,
+        dest=Path(tmp_path),
+        index=None,
+        skip_existing=False,
+    )
+
+    result = await archive(args)
+    code = await main(args)
+
+    assert result.downloaded == expected_downloaded
+    assert await _names(tmp_path) == expected_written
+    if expected_flags:
+        for flag in expected_flags:
+            assert code & flag
+    else:
+        assert code == ExitCode(0)
+
+
+def _scenario_client(
+    scenario: str,
+) -> tuple[_FakeClientSession, tuple[str, ...]]:
+    """Build the fake session and inputs for one fetch failure scenario."""
+    if scenario == "missing_imageinfo":
+        session = _FakeClientSession(
+            {"File:Bad.jpg": {"title": "File:Bad.jpg", "imageinfo": None}}
+        )
+        return session, ("File:Bad.jpg",)
+    if scenario == "missing_imageinfo_partial":
+        session = _FakeClientSession(
+            {
+                "File:Good.jpg": _page("File:Good.jpg"),
+                "File:Bad.jpg": {"title": "File:Bad.jpg", "imageinfo": None},
+            }
+        )
+        session.file_bytes = b"good"
+        return session, ("File:Good.jpg", "File:Bad.jpg")
+    if scenario == "network_error":
+        session = _FakeClientSession(
+            {
+                "File:Good.jpg": _page("File:Good.jpg"),
+                "File:Broken.jpg": _page("File:Broken.jpg"),
+            }
+        )
+        session.file_bytes = b"good"
+        session.file_fail_on = "Broken.jpg"
+        return session, ("File:Good.jpg", "File:Broken.jpg")
+    if scenario == "stream_error":
+        session = _FakeClientSession({"File:Stream.jpg": _page("File:Stream.jpg")})
+        session.file_bytes = b"partial"
+        session.fail_stream = True
+        return session, ("File:Stream.jpg",)
+    if scenario == "timeout":
+        session = _FakeClientSession({"File:Timeout.jpg": _page("File:Timeout.jpg")})
+        session.file_error = TimeoutError("timeout")
+        return session, ("File:Timeout.jpg",)
+    if scenario == "http_error":
+        session = _FakeClientSession({"File:HTTP.jpg": _page("File:HTTP.jpg")})
+        session.status = 500
+        return session, ("File:HTTP.jpg",)
+    if scenario == "corrupt_chunks":
+        session = _FakeClientSession({"File:Corrupt.jpg": _page("File:Corrupt.jpg")})
+        session.file_bytes = b"good-corrupt-tail"
+        return session, ("File:Corrupt.jpg",)
+    raise AssertionError(f"unknown scenario: {scenario}")
+
+
+@pytest.mark.anyio
+async def test_client_session_timeout_and_connector_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """The session has no transfer cap and a single connection per host."""
+    _patch_session_class(monkeypatch, _CapturingClientSession)
+
+    await archive(
+        Args(
+            inputs=("File:X.jpg",),
+            dest=Path(tmp_path),
+            index=None,
+            request_timeout=7.0,
+        )
+    )
+
+    captured = _CapturingClientSession.captured
+    timeout = cast(ClientTimeout, captured["timeout"])
+    connector = cast(TCPConnector, captured["connector"])
+    try:
+        assert timeout.total is None
+        assert timeout.sock_connect == 7.0
+        assert timeout.sock_read == 7.0
+        assert connector.limit_per_host == 1
+    finally:
+        await connector.close()
+
+
+@pytest.mark.anyio
+async def test_retry_options_cover_connection_errors(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """Connection and payload errors are retried alongside 429 responses."""
+    captured: dict[str, object] = {}
+
+    def recording_retry(**kwargs: object) -> None:
+        """Record retry option kwargs instead of building an options object."""
+        captured.update(kwargs)
+
+    _patch_session_class(monkeypatch, _CapturingClientSession)
+    monkeypatch.setattr(
+        "pyarchivist.Wikimedia_Commons.main._WikimediaRetry", recording_retry
+    )
+
+    await archive(Args(inputs=("File:X.jpg",), dest=Path(tmp_path), index=None))
+
+    assert captured["statuses"] == {429}
+    exceptions = cast(set[type[Exception]], captured["exceptions"])
+    assert {ClientConnectionError, ClientPayloadError} <= exceptions
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("trust_env", [True, False])
+async def test_trust_env_passed_to_client_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str], trust_env: bool
+) -> None:
+    """``trust_env`` reaches the ``ClientSession`` constructor unchanged."""
+    _patch_session_class(monkeypatch, _CapturingClientSession)
+
+    await archive(
+        Args(
+            inputs=("File:X.jpg",),
+            dest=Path(tmp_path),
+            index=None,
+            trust_env=trust_env,
+        )
+    )
+
+    assert _CapturingClientSession.captured["trust_env"] is trust_env
+
+
+def test_parser_produces_typed_namespace(tmp_path: PathLike[str]) -> None:
+    """The parser converts ``--dest`` to an anyio path and keeps the inputs."""
+    namespace = parser().parse_args(["-d", fspath(tmp_path), "File:Foo.jpg"])
+
+    assert isinstance(namespace.dest, Path)
+    assert namespace.index is None
+    assert namespace.inputs == ["File:Foo.jpg"]
+    assert namespace.trust_env is True
+
+
+def test_parser_version_action_contains_workspace_version() -> None:
+    """The ``--version`` action reports the package version."""
+    actions = [
+        action
+        for action in parser()._actions
+        if "--version" in getattr(action, "option_strings", [])
+    ]
+    assert actions, "--version action missing"
+    assert isinstance(actions[0], _VersionAction)
+    assert actions[0].version is not None
+    assert actions[0].version.endswith(f"v{VERSION}")
+
+
+def test_parser_skip_existing_flags(tmp_path: PathLike[str]) -> None:
+    """Skipping is on by default and both flag forms are accepted."""
+    p = parser()
+    default = p.parse_args(["-d", fspath(tmp_path), "File:X.jpg"])
+    negated = p.parse_args(["-d", fspath(tmp_path), "--no-skip-existing", "File:X.jpg"])
+    asserted = p.parse_args(["-d", fspath(tmp_path), "--skip-existing", "File:X.jpg"])
+
+    assert default.skip_existing is True
+    assert negated.skip_existing is False
+    assert asserted.skip_existing is True
+
+
+def test_parser_sanitize_filenames_flags(tmp_path: PathLike[str]) -> None:
+    """Sanitizing is on by default and both flag forms are accepted."""
+    p = parser()
+    default = p.parse_args(["-d", fspath(tmp_path), "File:X.jpg"])
+    negated = p.parse_args(
+        ["-d", fspath(tmp_path), "--no-sanitize-filenames", "File:X.jpg"]
+    )
+    asserted = p.parse_args(
+        ["-d", fspath(tmp_path), "--sanitize-filenames", "File:X.jpg"]
+    )
+
+    assert default.sanitize_filenames is True
+    assert negated.sanitize_filenames is False
+    assert asserted.sanitize_filenames is True
+
+
+def test_parser_fail_fast_flag(tmp_path: PathLike[str]) -> None:
+    """``--fail-fast`` is off unless asked for."""
+    p = parser()
+    default = p.parse_args(["-d", fspath(tmp_path), "File:X.jpg"])
+    enabled = p.parse_args(["-d", fspath(tmp_path), "--fail-fast", "File:X.jpg"])
+
+    assert default.fail_fast is False
+    assert enabled.fail_fast is True
+
+
+def test_parser_bisect_queries_flags(tmp_path: PathLike[str]) -> None:
+    """Bisecting is on by default and can be switched off."""
+    p = parser()
+    default = p.parse_args(["-d", fspath(tmp_path), "File:X.jpg"])
+    negated = p.parse_args(
+        ["-d", fspath(tmp_path), "--no-bisect-queries", "File:X.jpg"]
+    )
+
+    assert default.bisect_queries is True
+    assert negated.bisect_queries is False
+
+
+@pytest.mark.anyio
+async def test_parser_invoke_builds_args_and_calls_main(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """The parser ``invoke`` adapter forwards every flag into ``Args``."""
+    captured: dict[str, object] = {}
+
+    async def fake_main(args: Args) -> None:
+        """Capture the Args instance passed by the parser invoke adapter."""
+        captured["args"] = args
+
+    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.__main__.main", fake_main)
+
+    root = Path(tmp_path)
+    namespace = parser().parse_args(
+        [
+            "-d",
+            fspath(root),
+            "-i",
+            fspath(root / "index.md"),
+            "--no-skip-existing",
+            "--no-sanitize-filenames",
+            "--fail-fast",
+            "--no-bisect-queries",
+            "--no-trust-env",
+            "File:One.jpg",
+            "File:Two.jpg",
+        ]
+    )
+
+    await namespace.invoke(namespace)
+
+    args = cast(Args, captured["args"])
+    assert args.inputs == ("File:One.jpg", "File:Two.jpg")
+    assert args.dest == root
+    assert args.index == root / "index.md"
+    assert args.skip_existing is False
+    assert args.sanitize_filenames is False
+    assert args.fail_fast is True
+    assert args.bisect_queries is False
+    assert args.trust_env is False
 
 
 @pytest.mark.parametrize(
@@ -419,84 +1280,95 @@ async def test_fetch_missing_imageinfo_without_ignore_sets_fetch_error(
 def test_index_formatter_handles_various_filenames(
     raw: str, has_bracket: bool, has_backslash: bool, has_safe: bool
 ) -> None:
-    """Verify `_index_formatter` handles brackets, backslashes and safe chars."""
+    """Brackets, backslashes and safe characters are handled as documented."""
     out = _index_formatter(raw, "credit")
 
-    # label is the human-readable portion between [ and ]
-    m = re.search(r"^- \[((?:\\.|[^\]])*?)\]\((.*?)\): ", out)
-    assert m is not None
-    label, link = m.groups()
+    match = re.search(r"^- \[((?:\\.|[^\]])*?)\]\((.*?)\): ", out)
+    assert match is not None
+    label, link = match.groups()
 
     if has_bracket:
-        # label should contain the escape backslash and the link must contain %5D
         assert "\\" in label
         assert "%5D" in link
     if has_backslash:
-        # backslashes are doubled in the label; escaping ']' also inserts a backslash
         assert label.count("\\") == raw.count("\\") * 2 + raw.count("]")
-        # percent-encoding for backslash present in link
         assert "%5C" in link
     if has_safe:
-        # '/', ',' are in the safe set and must NOT be percent-encoded
-        for ch in ("/", ","):
-            if ch in raw:
-                assert ch in link
+        for character in ("/", ","):
+            if character in raw:
+                assert character in link
 
-    # final suffix must be present
     assert out.endswith(": credit")
 
 
-# Property-based tests for _index_formatter
 @given(
     st.tuples(
-        # prefix may include spaces (possibly empty), up to 59 chars
         st.text(
             alphabet=string.ascii_letters + string.digits + r" ]\\/_.-%,()",
             min_size=0,
             max_size=59,
         ),
-        # ensure at least one non-space character is present
         st.text(
             alphabet=string.ascii_letters + string.digits + r"]\\/_.-%,()",
             min_size=1,
             max_size=1,
         ),
-    ).map(lambda t: t[0] + t[1])
+    ).map(lambda parts: parts[0] + parts[1])
 )
 def test_index_formatter_property(fname: str) -> None:
-    """Property-based check ensuring `_index_formatter` escapes and quotes."""
+    """Generated filenames are escaped in the label and quoted in the link."""
     out = _index_formatter(fname, "credit")
-    m = re.search(r"^- \[((?:\\.|[^\]])*?)\]\((.*?)\): ", out)
-    assert m is not None
-    label, link = m.groups()
+    match = re.search(r"^- \[((?:\\.|[^\]])*?)\]\((.*?)\): ", out)
+    assert match is not None
+    label, link = match.groups()
 
-    # label should contain the escape backslash when ']' is present
     if "]" in fname:
         assert "\\" in label
         assert "%5D" in link
     if "\\" in fname or "]" in fname:
-        # account for doubled backslashes and the backslashes inserted when
-        # escaping ']' characters in the label
         assert label.count("\\") == fname.count("\\") * 2 + fname.count("]")
 
-    # link should be the quoted filename (preserving safe chars)
-    expected = quote(fname, safe=_PERCENT_ESCAPE_SAFE)
-    assert expected in link
+    assert quote(fname, safe=_PERCENT_ESCAPE_SAFE) in link
 
 
-def test_parser_produces_typed_namespace(tmp_path: PathLike[str]) -> None:
-    """Ensure the Wikimedia subparser produces a typed argparse namespace."""
-    p = parser()
-    ns = p.parse_args(["-d", fspath(tmp_path), "File:Foo.jpg"])
+@pytest.mark.parametrize(
+    "filename",
+    ["simple.jpg", "a]b", r"folder\\item].png", "comma,name.jpg"],
+)
+def test_index_formatter_output_matches_index_pattern(filename: str) -> None:
+    """Formatted lines parse back through ``_INDEX_FORMAT_PATTERN``."""
+    line = _index_formatter(filename, "credit")
+    match = _INDEX_FORMAT_PATTERN.match(line)
 
-    # argparse should have converted dest to an anyio.Path and set defaults
-    assert isinstance(ns.dest, Path)
-    assert ns.index is None
-    assert ns.inputs == ["File:Foo.jpg"]
+    assert match is not None
+    assert match.group(0) == line
+    assert unquote(match.group(2)) == filename
+
+
+def test_index_formatter_display_overrides_link_text() -> None:
+    """A given ``display`` becomes the visible link text."""
+    line = _index_formatter("sanitized.jpg", "credit", display="Original Name.jpg")
+    match = re.search(r"^- \[(.+?)\]\((.+?)\): ", line)
+    assert match is not None
+    label, link = match.groups()
+
+    assert label == "Original Name.jpg"
+    assert unquote(link) == "sanitized.jpg"
+
+
+def test_index_formatter_display_none_falls_back_to_filename() -> None:
+    """Without ``display`` the filename is the link text."""
+    line = _index_formatter("file.jpg", "credit")
+    match = re.search(r"^- \[(.+?)\]\((.+?)\): ", line)
+    assert match is not None
+    label, link = match.groups()
+
+    assert label == "file.jpg"
+    assert unquote(link) == "file.jpg"
 
 
 def test_credit_formatter_unknown_and_license_url_variants() -> None:
-    """Check `_credit_formatter` fallback behavior for unknown author/license."""
+    """Unknown author and license markers fall back to descriptive text."""
     ii = ImageInfoEntry(
         descriptionurl="https://commons.wikimedia.org/wiki/File:Test.jpg",
         url="https://upload.wikimedia.org/test.jpg",
@@ -509,26 +1381,38 @@ def test_credit_formatter_unknown_and_license_url_variants() -> None:
     page = Page(title="File:Test.jpg", imageinfo=(ii,))
 
     credit = _credit_formatter(page)
-    # unknown author should fall back to the 'See page for author' text
+
     assert "See page for author" in credit
-    # unknown license text should be replaced by fallback but still linked
     assert '<a href="https://example.org/license">See page for license</a>' in credit
 
 
-def _wrap_bold(s: str) -> str:
-    """Wrap `s` in a <b> tag (helper used by property tests)."""
-    return f"<b>{s}</b>"
+def test_credit_formatter_strips_html_and_newlines() -> None:
+    """Embedded HTML tags and newlines are removed from the credit."""
+    ii = ImageInfoEntry(
+        descriptionurl="https://commons.wikimedia.org/wiki/File:Html.jpg",
+        url="https://upload.wikimedia.org/html.jpg",
+        extmetadata=ExtMetadata(Artist=Value(value="<b>Jane\nDoe</b>", source="")),
+    )
+    page = Page(title="File:Html.jpg", imageinfo=(ii,))
+
+    credit = _credit_formatter(page)
+
+    assert "<b>" not in credit
+    assert "\n" not in credit
+    assert "Jane" in credit and "Doe" in credit
+    assert '<a href="https://commons.wikimedia.org/wiki/File:Html.jpg">' in credit
 
 
-# Property-based tests for _credit_formatter (broader variants)
+def _wrap_bold(text: str) -> str:
+    """Wrap *text* in a bold tag for the property test."""
+    return f"<b>{text}</b>"
+
+
 @given(
     artist=st.one_of(
         st.text(alphabet=string.ascii_letters + " \n<>-", min_size=0, max_size=40),
         st.just("Unknown author"),
-        st.builds(
-            _wrap_bold,
-            st.text(string.ascii_letters, min_size=1, max_size=10),
-        ),
+        st.builds(_wrap_bold, st.text(string.ascii_letters, min_size=1, max_size=10)),
     ),
     lic=st.one_of(
         st.text(alphabet=string.ascii_letters + " \n-", min_size=0, max_size=30),
@@ -539,12 +1423,10 @@ def _wrap_bold(s: str) -> str:
 def test_credit_formatter_property_variants(
     artist: str, lic: str, lic_url: str | None
 ) -> None:
-    """Fuzz combinations of artist/license/license-url and assert the
-    output contains the expected fallbacks, HTML stripping, and links.
-    """
+    """Generated metadata is sanitized and falls back to descriptive text."""
     emd = ExtMetadata(
-        Artist=Value(value=artist if artist != "" else None),
-        LicenseShortName=Value(value=lic if lic != "" else None),
+        Artist=Value(value=artist if artist else None),
+        LicenseShortName=Value(value=lic if lic else None),
         LicenseUrl=Value(value=lic_url if lic_url else None),
     )
     ii = ImageInfoEntry(
@@ -556,1217 +1438,26 @@ def test_credit_formatter_property_variants(
 
     out = _credit_formatter(page)
 
-    # unknown author -> fallback text
     if artist and "unknown author" in artist.casefold():
         assert "See page for author" in out
     else:
-        # HTML should be stripped and whitespace normalized
-        expected_author = re.sub(r"<[^>]*>", "", (artist or ""), flags=re.DOTALL)
+        expected_author = re.sub(r"<[^>]*>", "", artist, flags=re.DOTALL)
         expected_author = re.sub(
             r"\s+", " ", expected_author.replace("\n", " ")
         ).strip()
         if expected_author:
-            # HTML-escape before checking, since the output has HTML-escaped values
-            expected_author_first_word = html_escape(expected_author.split()[0])
-            assert expected_author_first_word in out
+            assert html_escape(expected_author.split()[0]) in out
         else:
             assert "See page for author" in out
 
-    # license handling
     if lic and "unknown license" in lic.casefold():
         assert "See page for license" in out
     else:
-        expected_lic = re.sub(r"\s+", " ", (lic or "").replace("\n", " ")).strip()
+        expected_lic = re.sub(r"\s+", " ", lic.replace("\n", " ")).strip()
         if expected_lic:
-            # HTML-escape before checking, since the output has HTML-escaped values
-            expected_lic_first_word = html_escape(expected_lic.split()[0])
-            assert expected_lic_first_word in out
+            assert html_escape(expected_lic.split()[0]) in out
         else:
             assert "See page for license" in out
 
-    # license URL
     if lic_url:
         assert f'<a href="{lic_url}"' in out
-
-
-def test_credit_formatter_strips_html_and_newlines() -> None:
-    """Ensure `_credit_formatter` strips HTML tags and normalizes newlines."""
-    raw_author = "<b>Jane\nDoe</b>"
-    ii = ImageInfoEntry(
-        descriptionurl="https://commons.wikimedia.org/wiki/File:Html.jpg",
-        url="https://upload.wikimedia.org/html.jpg",
-        extmetadata=ExtMetadata(Artist=Value(value=raw_author, source="")),
-    )
-    page = Page(title="File:Html.jpg", imageinfo=(ii,))
-
-    credit = _credit_formatter(page)
-    # HTML tags and raw newlines from the metadata should be sanitized
-    assert "<b>" not in credit
-    assert "\n" not in credit
-    assert "Jane" in credit and "Doe" in credit
-    # output is an HTML fragment that links back to the description page
-    assert '<a href="https://commons.wikimedia.org/wiki/File:Html.jpg">' in credit
-
-
-def test_parser_version_action_contains_workspace_version() -> None:
-    """Verify the parser's --version action contains the workspace VERSION."""
-    # find the version action and verify it contains the project VERSION
-
-    p = parser()
-    version_actions = [
-        a for a in p._actions if "--version" in getattr(a, "option_strings", [])
-    ]
-    assert version_actions, "--version action missing"
-    assert isinstance(version_actions[0], _VersionAction)
-    assert version_actions[0].version is not None
-    assert version_actions[0].version.endswith(f"v{VERSION}")
-
-
-@pytest.mark.anyio
-async def test_main_query_error_sets_query_and_generic_exit_code(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
-) -> None:
-    """If the API returns invalid/invalidatable JSON the query stage should set
-    QUERY_ERROR (and the outer handler will set GENERIC_ERROR too).
-    """
-
-    class BadAPIClient(_FakeClientSession):
-        """Fake client that returns deliberately malformed API JSON."""
-
-        def __init__(self) -> None:
-            """Initialize with a malformed API payload (for error path tests)."""
-            super().__init__()
-            # deliberately malformed payload (title should be a str)
-            self._api_json = {"query": {"pages": {"1": {"title": 1}}}}
-
-    fake = BadAPIClient()
-
-    def _client_session_factory(*_a: object, **_k: object) -> BadAPIClient:
-        """Return the BadAPIClient instance for this test."""
-        return fake
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
-    )
-
-    args: Args = Args(
-        inputs=("File:Broken.jpg",),
-        dest=Path(tmp_path),
-        index=None,
-        max_retries=0,
-    )
-
-    ec = await main(args)
-
-    # With the new RetryClient-based error handling, the query error
-    # propagates through the TaskGroup and is caught as a general error.
-    assert isinstance(ec, ExitCode)
-    assert bool(ec & ExitCode.GENERIC_ERROR)
-    assert bool(ec & ExitCode.GENERIC_ERROR)
-
-
-@pytest.mark.anyio
-async def test_main_deduplicates_inputs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
-) -> None:
-    """Ensure duplicate inputs are deduplicated by `main`."""
-    fake_sess = _FakeClientSession()
-
-    fake_sess._api_json = {
-        "query": {
-            "pages": {
-                "1": {
-                    "title": "File:Single.jpg",
-                    "imageinfo": [
-                        {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Single.jpg",
-                            "url": "https://upload.wikimedia.org/single.jpg",
-                            "extmetadata": {},
-                        }
-                    ],
-                }
-            }
-        }
-    }
-
-    fake_sess._file_bytes = b"abc"
-
-    def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return the fake session used for deduplication test."""
-        return fake_sess
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
-    )
-
-    # duplicate inputs should be deduplicated by `main`
-    args: Args = Args(
-        inputs=("File:Single.jpg", "File:Single.jpg"),
-        dest=Path(tmp_path),
-        index=None,
-    )
-
-    await main(args)
-
-    out = Path(tmp_path) / "Single.jpg"
-    assert await out.exists()
-    assert await out.read_bytes() == b"abc"
-
-
-@pytest.mark.anyio
-async def test_index_file_created_when_missing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
-) -> None:
-    """When the index file is missing, `main` should create it before writing."""
-    fake_sess = _FakeClientSession()
-
-    fake_sess._api_json = {
-        "query": {
-            "pages": {
-                "1": {
-                    "title": "File:NewIndex.jpg",
-                    "imageinfo": [
-                        {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:NewIndex.jpg",
-                            "url": "https://upload.wikimedia.org/newindex.jpg",
-                            "extmetadata": {},
-                        }
-                    ],
-                }
-            }
-        }
-    }
-    fake_sess._file_bytes = b"data"
-
-    def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return the fake session used to create a missing index file."""
-        return fake_sess
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
-    )
-
-    index_path: Path = Path(tmp_path) / "subdir" / "index.md"
-    # ensure file does not exist beforehand
-    assert not await index_path.exists()
-
-    args: Args = Args(
-        inputs=("File:NewIndex.jpg",),
-        dest=Path(tmp_path),
-        index=Path(index_path),
-    )
-
-    await main(args)
-
-    assert await index_path.exists()
-    text = await index_path.read_text(encoding="utf-8")
-    assert "NewIndex.jpg" in text
-
-
-@pytest.mark.anyio
-async def test_query_batching_respects_query_limit(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
-) -> None:
-    """With a small `_QUERY_LIMIT` the implementation should batch queries."""
-    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main._QUERY_LIMIT", 1)
-
-    class CountingClient(_FakeClientSession):
-        """Client that counts API query calls to validate batching behaviour."""
-
-        def __init__(self) -> None:
-            """Initialize counters and placeholder responses."""
-            super().__init__()
-            self.query_calls = 0
-            self.query_urls: list[str] = []
-            self._file_bytes = b"x"
-            self._api_json = None
-
-        @override
-        def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
-            """Return different API payloads depending on the 'titles' query."""
-            s = str(url)
-            if "api.php" in s:
-                self.query_calls += 1
-                self.query_urls.append(s)
-                if "First" in s:
-                    return _FakeResp(
-                        json_data={
-                            "query": {
-                                "pages": {
-                                    "1": {
-                                        "title": "File:First.jpg",
-                                        "imageinfo": [
-                                            {
-                                                "descriptionurl": "https://commons.wikimedia.org/wiki/File:First.jpg",
-                                                "url": "https://upload.wikimedia.org/first.jpg",
-                                                "extmetadata": dict[str, str](),
-                                            }
-                                        ],
-                                    }
-                                }
-                            }
-                        }
-                    )
-                return _FakeResp(
-                    json_data={
-                        "query": {
-                            "pages": {
-                                "2": {
-                                    "title": "File:Second.jpg",
-                                    "imageinfo": [
-                                        {
-                                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Second.jpg",
-                                            "url": "https://upload.wikimedia.org/second.jpg",
-                                            "extmetadata": dict[str, str](),
-                                        }
-                                    ],
-                                }
-                            }
-                        }
-                    }
-                )
-            return super().get(url, *args, **kwargs)
-
-    fake = CountingClient()
-
-    def _client_session_factory(*_a: object, **_k: object) -> CountingClient:
-        """Return the counting client used to verify batching behaviour."""
-        return fake
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
-    )
-
-    args: Args = Args(
-        inputs=("File:First.jpg", "File:Second.jpg"),
-        dest=Path(tmp_path),
-        index=None,
-    )
-
-    await main(args)
-
-    assert fake.query_calls == 2
-    iiprop = URL(fake.query_urls[0]).query["iiprop"].split("|")
-    assert "mime" in iiprop
-    assert "size" in iiprop
-
-
-@pytest.mark.anyio
-async def test_query_partial_error_with_ignore_sets_partial_flag(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
-) -> None:
-    """Simulate one API query raising while the other succeeds; with
-    --ignore-individual-errors the partial query should be swallowed and
-    QUERY_ERROR_PARTIAL should be set.
-    """
-    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main._QUERY_LIMIT", 1)
-
-    class PartialFailClient(_FakeClientSession):
-        """Client that simulates one successful and one failing API batch."""
-
-        def __init__(self) -> None:
-            """Configure a successful payload for the first batch."""
-            super().__init__()
-            self._file_bytes = b"ok"
-
-        @override
-        def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
-            """Return a valid response for the first title, raise for the second."""
-            s = str(url)
-            if "api.php" in s:
-                if "First" in s:
-                    return _FakeResp(
-                        json_data={
-                            "query": {
-                                "pages": {
-                                    "1": {
-                                        "title": "File:First.jpg",
-                                        "imageinfo": [
-                                            {
-                                                "descriptionurl": "https://commons.wikimedia.org/wiki/File:First.jpg",
-                                                "url": "https://upload.wikimedia.org/first.jpg",
-                                                "extmetadata": dict[str, str](),
-                                            }
-                                        ],
-                                    }
-                                }
-                            }
-                        }
-                    )
-                # simulate network/query failure for second batch
-                raise RuntimeError("api-failure")
-            return super().get(url, *args, **kwargs)
-
-    fake = PartialFailClient()
-
-    def _client_session_factory(*_a: object, **_k: object) -> PartialFailClient:
-        """Return the partial-fail client for this test scenario."""
-        return fake
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
-    )
-
-    args: Args = Args(
-        inputs=("File:First.jpg", "File:Second.jpg"),
-        dest=Path(tmp_path),
-        index=None,
-        max_retries=0,
-    )
-
-    ec = await main(args)
-
-    # With the new RetryClient-based error handling, the failed query
-    # propagates through the TaskGroup and the entire operation fails.
-    # No file is written.
-    out = Path(tmp_path) / "First.jpg"
-    assert not await out.exists()
-
-    assert isinstance(ec, ExitCode)
-    assert bool(ec & ExitCode.GENERIC_ERROR)
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    "scenario,ignore,expect_written,expected_flags",
-    [
-        # With RetryClient, fetch errors propagate through the TaskGroup and
-        # are caught as phase="general" → GENERIC_ERROR.
-        ("missing_imageinfo_single", False, [], (ExitCode.GENERIC_ERROR,)),
-        (
-            "missing_imageinfo_partial",
-            True,
-            [],
-            (ExitCode.GENERIC_ERROR,),
-        ),
-        (
-            "network_error_non_ignored",
-            False,
-            [],
-            (ExitCode.GENERIC_ERROR,),
-        ),
-        (
-            "network_error_ignored",
-            True,
-            [],
-            (ExitCode.GENERIC_ERROR,),
-        ),
-        ("iter_error_ignored", True, [], (ExitCode.GENERIC_ERROR,)),
-        (
-            "timeout_non_ignored",
-            False,
-            [],
-            (ExitCode.GENERIC_ERROR,),
-        ),
-        ("timeout_ignored", True, [], (ExitCode.GENERIC_ERROR,)),
-        ("corrupt_chunks", False, ["Corrupt.jpg"], ()),
-    ],
-)
-async def test_fetch_error_variants(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: PathLike[str],
-    scenario: str,
-    ignore: bool,
-    expect_written: list[str],
-    expected_flags: tuple[ExitCode, ...],
-) -> None:
-    """Parameterized fetch error scenarios.
-
-    Scenarios:
-    - missing_imageinfo_single: single page lacking imageinfo (non-ignored)
-    - missing_imageinfo_partial: mixed good/bad pages with ignore=True
-    - network_error_non_ignored: GET raises during download (non-ignored)
-    - network_error_ignored: GET raises but errors are ignored
-    - iter_error_ignored: response.iter_any() raises but errors are ignored
-    - timeout_*: simulate a timeout error during download
-    - corrupt_chunks: server returns corrupted/altered chunks (no fetch error)
-    """
-
-    # build clients per scenario
-    if scenario == "missing_imageinfo_single":
-        fake = _FakeClientSession()
-        fake._api_json = {
-            "query": {"pages": {"1": {"title": "File:Bad.jpg", "imageinfo": None}}}
-        }
-
-    elif scenario == "missing_imageinfo_partial":
-        fake = _FakeClientSession()
-        fake._api_json = {
-            "query": {
-                "pages": {
-                    "1": {
-                        "title": "File:Good.jpg",
-                        "imageinfo": [
-                            {
-                                "descriptionurl": "https://commons.wikimedia.org/wiki/File:Good.jpg",
-                                "url": "https://upload.wikimedia.org/good.jpg",
-                                "extmetadata": {},
-                            }
-                        ],
-                    },
-                    "2": {"title": "File:Bad.jpg", "imageinfo": None},
-                }
-            }
-        }
-        fake._file_bytes = b"good-bytes"
-
-    elif scenario in ("network_error_non_ignored", "network_error_ignored"):
-
-        class MixedFetchClient(_FakeClientSession):
-            """Client mixing successful and failing file-download behaviour."""
-
-            def __init__(self) -> None:
-                """Configure API pages and a valid file payload for one page."""
-                super().__init__()
-                # two pages to allow mixing broken/good behaviour
-                self._api_json = {
-                    "query": {
-                        "pages": {
-                            "1": {
-                                "title": "File:Good.jpg",
-                                "imageinfo": [
-                                    {
-                                        "descriptionurl": "https://commons.wikimedia.org/wiki/File:Good.jpg",
-                                        "url": "https://upload.wikimedia.org/good.jpg",
-                                        "extmetadata": {},
-                                    }
-                                ],
-                            },
-                            "2": {
-                                "title": "File:BrokenFetch.jpg",
-                                "imageinfo": [
-                                    {
-                                        "descriptionurl": "https://commons.wikimedia.org/wiki/File:BrokenFetch.jpg",
-                                        "url": "https://upload.wikimedia.org/broken.jpg",
-                                        "extmetadata": {},
-                                    }
-                                ],
-                            },
-                        }
-                    }
-                }
-                self._file_bytes = b"ok"
-
-            @override
-            def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
-                """Return API payload or raise for the simulated broken file URL."""
-                s = str(url)
-                if "api.php" in s:
-                    return _FakeResp(json_data=self._api_json)
-                if "broken.jpg" in s:
-                    raise RuntimeError("network error")
-                return _FakeResp(
-                    content_chunks=None
-                    if self._file_bytes is None
-                    else [self._file_bytes]
-                )
-
-        fake = MixedFetchClient()
-
-    elif scenario == "iter_error_ignored":
-
-        class IterErrorContent(_FakeContent):
-            """Content-like object whose iterator raises to simulate stream errors."""
-
-            @override
-            async def iter_any(self) -> AsyncIterator[bytes]:
-                """Raise a runtime error when iterated to simulate stream failure."""
-                await sleep(0)
-                raise RuntimeError("stream error")
-                if False:
-                    yield b""
-
-        class IterErrorResp(_FakeResp):
-            """Response-like object that uses `IterErrorContent` for content."""
-
-            def __init__(self, *, json_data: object | None = None) -> None:
-                """Initialize base response and attach the error-producing content."""
-                super().__init__(json_data=json_data, content_chunks=None)
-                self.content = IterErrorContent([])
-
-        class IterErrorClient(_FakeClientSession):
-            """Client that returns a response whose content iterator raises."""
-
-            def __init__(self) -> None:
-                """Prepare an API payload referencing the broken-stream file."""
-                super().__init__()
-                self._api_json = {
-                    "query": {
-                        "pages": {
-                            "1": {
-                                "title": "File:BrokenStream.jpg",
-                                "imageinfo": [
-                                    {
-                                        "descriptionurl": "https://commons.wikimedia.org/wiki/File:BrokenStream.jpg",
-                                        "url": "https://upload.wikimedia.org/brokenstream.jpg",
-                                        "extmetadata": {},
-                                    }
-                                ],
-                            }
-                        }
-                    }
-                }
-
-            @override
-            def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
-                """Return the API payload or an `IterErrorResp` for downloads."""
-                s = str(url)
-                if "api.php" in s:
-                    return _FakeResp(json_data=self._api_json)
-                return IterErrorResp()
-
-        fake = IterErrorClient()
-
-    elif scenario in ("timeout_non_ignored", "timeout_ignored"):
-
-        class TimeoutClient(_FakeClientSession):
-            """Client that raises an `TimeoutError` for file downloads."""
-
-            def __init__(self) -> None:
-                """Prepare API payload pointing at a file URL that times out."""
-                super().__init__()
-                self._api_json = {
-                    "query": {
-                        "pages": {
-                            "1": {
-                                "title": "File:Timeout.jpg",
-                                "imageinfo": [
-                                    {
-                                        "descriptionurl": "https://commons.wikimedia.org/wiki/File:Timeout.jpg",
-                                        "url": "https://upload.wikimedia.org/timeout.jpg",
-                                        "extmetadata": {},
-                                    }
-                                ],
-                            }
-                        }
-                    }
-                }
-
-            @override
-            def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
-                """Return API response or raise TimeoutError for download URL."""
-                s = str(url)
-                if "api.php" in s:
-                    return _FakeResp(json_data=self._api_json)
-                raise TimeoutError("timeout")
-
-        fake = TimeoutClient()
-
-    elif scenario == "corrupt_chunks":
-
-        class CorruptClient(_FakeClientSession):
-            """Client that returns intentionally corrupted download chunks."""
-
-            def __init__(self) -> None:
-                """Prepare API payload for the corrupt-chunks scenario."""
-                super().__init__()
-                self._api_json = {
-                    "query": {
-                        "pages": {
-                            "1": {
-                                "title": "File:Corrupt.jpg",
-                                "imageinfo": [
-                                    {
-                                        "descriptionurl": "https://commons.wikimedia.org/wiki/File:Corrupt.jpg",
-                                        "url": "https://upload.wikimedia.org/corrupt.jpg",
-                                        "extmetadata": {},
-                                    }
-                                ],
-                            }
-                        }
-                    }
-                }
-
-            @override
-            def get(self, url: object, *args: object, **kwargs: object) -> _FakeResp:
-                """Return a response whose content chunks are intentionally corrupted."""
-                s = str(url)
-                if "api.php" in s:
-                    return _FakeResp(json_data=self._api_json)
-                # return intentionally corrupted chunks
-                return _FakeResp(content_chunks=[b"good-", b"corrupt", b"-tail"])
-
-        fake = CorruptClient()
-
-    else:
-        raise AssertionError("unknown scenario")
-
-    def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return the configured fake client for the scenario."""
-        return fake
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
-    )
-
-    # choose inputs depending on scenario
-    if scenario in (
-        "missing_imageinfo_partial",
-        "network_error_non_ignored",
-        "network_error_ignored",
-    ):
-        inputs = (
-            ("File:Good.jpg", "File:BrokenFetch.jpg")
-            if "network" in scenario
-            else ("File:Good.jpg", "File:Bad.jpg")
-        )
-    else:
-        inputs = ("File:Bad.jpg",)
-
-    args: Args = Args(
-        inputs=inputs,
-        dest=Path(tmp_path),
-        index=None,
-        max_retries=0,
-    )
-
-    code = await main(args)
-
-    # check written files
-    for fname in expect_written:
-        out = Path(tmp_path) / fname
-        assert await out.exists()
-
-    # check expected exit flags
-    assert isinstance(code, ExitCode)
-    for flag in expected_flags:
-        assert bool(code & flag)
-
-
-@pytest.mark.anyio
-async def test_indexing_merges_percent_encoded_existing_entry(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
-) -> None:
-    """Existing index lines with percent-encoded filenames should be
-    matched and updated rather than duplicated.
-    """
-    fake_sess = _FakeClientSession()
-
-    fake_sess._api_json = {
-        "query": {
-            "pages": {
-                "1": {
-                    "title": "File:a]b",
-                    "imageinfo": [
-                        {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:a]b",
-                            "url": "https://upload.wikimedia.org/a%5Db.jpg",
-                            "extmetadata": {},
-                        }
-                    ],
-                }
-            }
-        }
-    }
-    fake_sess._file_bytes = b"d"
-
-    def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return the prepared fake session for indexing/merge checks."""
-        return fake_sess
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
-    )
-
-    # index contains a percent-encoded link target and an escaped label
-    index_path: Path = Path(tmp_path) / "index.md"
-    await index_path.write_text(
-        "Header\n\n- [a\\]b](a%5Db): Old credit\n- [Other](Other): Other credit\n",
-        encoding="utf-8",
-    )
-
-    args: Args = Args(
-        inputs=("File:a]b",),
-        dest=Path(tmp_path),
-        index=Path(index_path),
-    )
-
-    await main(args)
-
-    text = await index_path.read_text(encoding="utf-8")
-    paragraphs = text.strip().split("\n\n")
-    last = paragraphs[-1]
-
-    # Old credit should have been replaced and no duplicate entry created
-    assert "Old credit" not in last
-    assert "a]b" in last
-    # ensure Other entry still present
-    assert "Other credit" in last
-
-
-@pytest.mark.anyio
-async def test_parser_invoke_builds_args_and_calls_main(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: PathLike[str],
-) -> None:
-    """The parser ``invoke`` adapter should construct ``Args`` and await ``main``."""
-    captured: dict[str, object] = {}
-
-    async def fake_main(args: Args) -> None:
-        """Capture the Args instance passed by the parser invoke adapter."""
-        captured["args"] = args
-
-    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.__main__.main", fake_main)
-
-    tmp_root = Path(tmp_path)
-    p = parser()
-    namespace = p.parse_args(
-        [
-            "-d",
-            fspath(tmp_root),
-            "-i",
-            fspath(tmp_root / "index.md"),
-            "--ignore-individual-errors",
-            "File:One.jpg",
-            "File:Two.jpg",
-        ]
-    )
-
-    await namespace.invoke(namespace)
-
-    assert "args" in captured
-    args = captured["args"]
-    assert isinstance(args, Args)
-    assert args.inputs == ("File:One.jpg", "File:Two.jpg")
-    assert args.dest == tmp_root
-    assert args.index == tmp_root / "index.md"
-    assert args.trust_env is True
-
-
-@pytest.mark.anyio
-async def test_trust_env_passed_to_client_session(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
-) -> None:
-    """Verify trust_env=True is forwarded to the ClientSession constructor."""
-    captured_kwargs: dict[str, object] = {}
-
-    class CapturingClientSession:
-        """Fake ClientSession that records keyword arguments."""
-
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            """Capture all keyword arguments for assertion."""
-            captured_kwargs.update(kwargs)
-
-        async def __aenter__(self) -> "CapturingClientSession":
-            """Enter async context (no-op)."""
-            return self
-
-        async def __aexit__(self, *args: object) -> bool:
-            """Exit async context (no-op)."""
-            return False
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", CapturingClientSession
-    )
-
-    args = Args(
-        inputs=("File:Trust.jpg",),
-        dest=Path(tmp_path),
-        index=None,
-        trust_env=True,
-    )
-
-    await archive(args)
-
-    assert captured_kwargs.get("trust_env") is True
-
-
-@pytest.mark.anyio
-async def test_trust_env_false_passed_to_client_session(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
-) -> None:
-    """Verify trust_env=False is forwarded to the ClientSession constructor."""
-    captured_kwargs: dict[str, object] = {}
-
-    class CapturingClientSession:
-        """Fake ClientSession that records keyword arguments."""
-
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            """Capture all keyword arguments for assertion."""
-            captured_kwargs.update(kwargs)
-
-        async def __aenter__(self) -> "CapturingClientSession":
-            """Enter async context (no-op)."""
-            return self
-
-        async def __aexit__(self, *args: object) -> bool:
-            """Exit async context (no-op)."""
-            return False
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", CapturingClientSession
-    )
-
-    args = Args(
-        inputs=("File:NoTrust.jpg",),
-        dest=Path(tmp_path),
-        index=None,
-        trust_env=False,
-    )
-
-    await archive(args)
-
-    assert captured_kwargs.get("trust_env") is False
-
-
-def test_parser_trust_env_default(tmp_path: PathLike[str]) -> None:
-    """Parser default for trust_env should be True."""
-    p = parser()
-    ns = p.parse_args(["-d", fspath(tmp_path), "File:X.jpg"])
-    assert ns.trust_env is True
-
-
-def test_parser_no_trust_env_flag(tmp_path: PathLike[str]) -> None:
-    """Parser --no-trust-env flag should set trust_env to False."""
-    p = parser()
-    ns = p.parse_args(["-d", fspath(tmp_path), "--no-trust-env", "File:X.jpg"])
-    assert ns.trust_env is False
-
-
-@pytest.mark.anyio
-async def test_main_index_error_sets_index_and_generic_flags(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: PathLike[str],
-) -> None:
-    """Index write failures should set INDEX_ERROR and GENERIC_ERROR flags."""
-    fake_sess = _FakeClientSession()
-    fake_sess._api_json = {
-        "query": {
-            "pages": {
-                "1": {
-                    "title": "File:IndexFail.jpg",
-                    "imageinfo": [
-                        {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:IndexFail.jpg",
-                            "url": "https://upload.wikimedia.org/indexfail.jpg",
-                            "extmetadata": {},
-                        }
-                    ],
-                }
-            }
-        }
-    }
-    fake_sess._file_bytes = b"ok"
-
-    def _client_session_factory(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return the fake client session used by this test."""
-        return fake_sess
-
-    real_open_any = cast(Any, Path.open)
-    index_path = Path(tmp_path) / "index.md"
-
-    async def failing_open(
-        path: Path,
-        *args: object,
-        **kwargs: object,
-    ) -> object:
-        """Raise on the index path while delegating all other ``Path.open`` calls."""
-        if path == index_path:
-            raise OSError("index open failure")
-        return await real_open_any(path, *args, **kwargs)
-
-    monkeypatch.setattr(
-        "pyarchivist.Wikimedia_Commons.main.ClientSession", _client_session_factory
-    )
-    monkeypatch.setattr(Path, "open", failing_open)
-
-    args = Args(
-        inputs=("File:IndexFail.jpg",),
-        dest=Path(tmp_path),
-        index=index_path,
-    )
-
-    code = await main(args)
-
-    downloaded = Path(tmp_path) / "IndexFail.jpg"
-    assert await downloaded.exists()
-    assert await downloaded.read_bytes() == b"ok"
-
-    # With the new RetryClient-based error handling, the index error
-    # propagates and is caught as a general error.
-    assert isinstance(code, ExitCode)
-    assert bool(code & ExitCode.GENERIC_ERROR)
-
-
-@pytest.mark.parametrize(
-    "filename",
-    [
-        "simple.jpg",
-        "a]b",
-        r"folder\\item].png",
-        "comma,name.jpg",
-    ],
-)
-def test_index_formatter_output_matches_index_pattern(filename: str) -> None:
-    """Formatted index lines should round-trip through `_INDEX_FORMAT_PATTERN`."""
-    line = _index_formatter(filename, "credit")
-    match = _INDEX_FORMAT_PATTERN.match(line)
-
-    assert match is not None
-    assert match.group(0) == line
-    assert unquote(match.group(2)) == filename
-
-
-def test_index_formatter_display_overrides_link_text() -> None:
-    """When ``display`` is given it becomes the visible link text."""
-    line = _index_formatter("sanitized.jpg", "credit", display="Original Name.jpg")
-    m = re.search(r"^- \[(.+?)\]\((.+?)\): ", line)
-    assert m is not None
-    label, link = m.groups()
-    assert label == "Original Name.jpg"
-    assert unquote(link) == "sanitized.jpg"
-
-
-def test_index_formatter_display_none_falls_back_to_filename() -> None:
-    """When ``display`` is omitted the filename is used as link text."""
-    line = _index_formatter("file.jpg", "credit")
-    m = re.search(r"^- \[(.+?)\]\((.+?)\): ", line)
-    assert m is not None
-    label, link = m.groups()
-    assert label == "file.jpg"
-    assert unquote(link) == "file.jpg"
-
-
-@pytest.mark.anyio
-async def test_sanitize_filenames_replaces_quote(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
-) -> None:
-    """A page title containing `"` must be sanitized to `_` when sanitize_filenames=True."""
-    fake_sess = _FakeClientSession()
-    fake_sess._api_json = {
-        "query": {
-            "pages": {
-                "1": {
-                    "title": 'File:File with "quotes".jpg',
-                    "imageinfo": [
-                        {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:File_with_%22quotes%22.jpg",
-                            "url": "https://upload.wikimedia.org/quotes.jpg",
-                            "extmetadata": {},
-                        }
-                    ],
-                }
-            }
-        }
-    }
-    fake_sess._file_bytes = b"img"
-
-    def _factory(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return the configured fake session for the quote-sanitize test."""
-        return fake_sess
-
-    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main.ClientSession", _factory)
-
-    args = Args(
-        inputs=('File:File with "quotes".jpg',),
-        dest=Path(tmp_path),
-        index=None,
-    )
-
-    result = await archive(args)
-
-    # sanitized filename should contain underscores, not quotes
-    written = [p async for p in Path(tmp_path).iterdir()]
-    assert len(written) == 1
-    assert '"' not in written[0].name
-    assert result.downloaded == 1
-
-
-@pytest.mark.anyio
-async def test_sanitize_filenames_false_preserves_original(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
-) -> None:
-    """When sanitize_filenames=False the original title-derived filename is used."""
-    fake_sess = _FakeClientSession()
-    fake_sess._api_json = {
-        "query": {
-            "pages": {
-                "1": {
-                    "title": 'File:File with "quotes".jpg',
-                    "imageinfo": [
-                        {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:File_with_%22quotes%22.jpg",
-                            "url": "https://upload.wikimedia.org/quotes.jpg",
-                            "extmetadata": {},
-                        }
-                    ],
-                }
-            }
-        }
-    }
-    fake_sess._file_bytes = b"img"
-
-    def _factory(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return the configured fake session for the no-sanitize test."""
-        return fake_sess
-
-    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main.ClientSession", _factory)
-
-    args = Args(
-        inputs=('File:File with "quotes".jpg',),
-        dest=Path(tmp_path),
-        index=None,
-        sanitize_filenames=False,
-    )
-
-    await archive(args)
-
-    written = [p async for p in Path(tmp_path).iterdir()]
-    assert len(written) == 1
-    # the original filename (with quotes) should be preserved on disk
-    assert '"' in written[0].name
-
-
-@pytest.mark.parametrize(
-    "title,expected_fragment",
-    [
-        ("File:Asterisk*.jpg", "Asterisk_.jpg"),
-        ("File:Question?.jpg", "Question_.jpg"),
-        ("File:Angle<>.jpg", "Angle__.jpg"),
-        ("File:Pipe|.jpg", "Pipe_.jpg"),
-    ],
-)
-@pytest.mark.anyio
-async def test_sanitize_filenames_various_illegal_chars(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: PathLike[str],
-    title: str,
-    expected_fragment: str,
-) -> None:
-    """Illegal characters `* ? < > |` are each replaced by `_`."""
-    fake_sess = _FakeClientSession()
-    fake_sess._api_json = {
-        "query": {
-            "pages": {
-                "1": {
-                    "title": title,
-                    "imageinfo": [
-                        {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/",
-                            "url": "https://upload.wikimedia.org/x.jpg",
-                            "extmetadata": {},
-                        }
-                    ],
-                }
-            }
-        }
-    }
-    fake_sess._file_bytes = b"x"
-
-    def _factory(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return the configured fake session for the illegal-chars test."""
-        return fake_sess
-
-    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main.ClientSession", _factory)
-
-    args = Args(
-        inputs=(title,),
-        dest=Path(tmp_path),
-        index=None,
-    )
-
-    await archive(args)
-
-    written = [p async for p in Path(tmp_path).iterdir()]
-    assert len(written) == 1
-    assert written[0].name == expected_fragment
-
-
-@pytest.mark.anyio
-async def test_sanitize_filenames_skip_existing_after_sanitize(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
-) -> None:
-    """Running twice with skip_existing=True should skip after sanitization changes the name."""
-    fake_sess = _FakeClientSession()
-    fake_sess._api_json = {
-        "query": {
-            "pages": {
-                "1": {
-                    "title": "File:A?B.jpg",
-                    "imageinfo": [
-                        {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/",
-                            "url": "https://upload.wikimedia.org/ab.jpg",
-                            "extmetadata": {},
-                        }
-                    ],
-                }
-            }
-        }
-    }
-    fake_sess._file_bytes = b"data"
-
-    def _factory(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return the configured fake session for the skip-existing test."""
-        return fake_sess
-
-    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main.ClientSession", _factory)
-
-    args = Args(
-        inputs=("File:A?B.jpg",),
-        dest=Path(tmp_path),
-        index=None,
-    )
-
-    # first run — should download
-    r1 = await archive(args)
-    assert r1.downloaded == 1
-    assert r1.skipped == 0
-
-    # second run with skip_existing — should skip
-    args_skip = Args(
-        inputs=("File:A?B.jpg",),
-        dest=Path(tmp_path),
-        index=None,
-        skip_existing=True,
-    )
-    r2 = await archive(args_skip)
-    assert r2.downloaded == 0
-    assert r2.skipped == 1
-
-
-@pytest.mark.anyio
-async def test_sanitize_filenames_index_uses_unsanitized_display(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
-) -> None:
-    """Index entry display name must be the unsanitized page title."""
-    fake_sess = _FakeClientSession()
-    fake_sess._api_json = {
-        "query": {
-            "pages": {
-                "1": {
-                    "title": 'File:A "quoted" name.jpg',
-                    "imageinfo": [
-                        {
-                            "descriptionurl": "https://commons.wikimedia.org/wiki/",
-                            "url": "https://upload.wikimedia.org/x.jpg",
-                            "extmetadata": {},
-                        }
-                    ],
-                }
-            }
-        }
-    }
-    fake_sess._file_bytes = b"img"
-
-    def _factory(*_a: object, **_k: object) -> _FakeClientSession:
-        """Return the configured fake session for the index-display test."""
-        return fake_sess
-
-    monkeypatch.setattr("pyarchivist.Wikimedia_Commons.main.ClientSession", _factory)
-
-    index_file = Path(tmp_path) / "index.md"
-    args = Args(
-        inputs=('File:A "quoted" name.jpg',),
-        dest=Path(tmp_path),
-        index=index_file,
-    )
-
-    await archive(args)
-
-    # read the index file and verify the display name is unsanitized
-    content = await index_file.read_text()
-    # the unsanitized title part should appear as the link text
-    assert 'A "quoted" name.jpg' in content
-    # the sanitized filename should appear in the URL (percent-encoded)
-    assert "A%20_quoted_%20name.jpg" in content

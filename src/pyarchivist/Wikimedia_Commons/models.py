@@ -60,10 +60,17 @@ class ImageInfoEntry(BaseModel):
 
 
 class Page(BaseModel):
-    """A page container with a title and optional image information."""
+    """A page container with a title and optional image information.
+
+    ``missing`` and ``invalidreason`` distinguish an absent title from one the
+    API rejects; MediaWiki reports an absent page as ``"missing": ""``, so the
+    check has to be ``is not None`` rather than truthiness.
+    """
 
     title: str
     imageinfo: Sequence[ImageInfoEntry] | None = None
+    missing: str | None = None
+    invalidreason: str | None = None
 
     model_config = ConfigDict(frozen=True)
 
