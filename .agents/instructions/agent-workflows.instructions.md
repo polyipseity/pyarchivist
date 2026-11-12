@@ -69,7 +69,7 @@ Docstrings: Ensure that modules and exported public symbols are documented. The 
 - Tests must define `__all__ = ()` at top-level in test modules (project rule).
 - When adding new folders for Python code (source or tests), include an `__init__.py` file so the directory is an explicit Python package. Mirror the `src/` layout under `tests/` and ensure any package-style test subfolders also include `__init__.py`.
 - For async/failure-prone flows (especially Wikimedia query/fetch/index), assert
-  explicit `ExitCode` flags and capture partial-error behavior.
+  explicit `ExitCode` flags, including runs where only some items fail.
 
 ## Build & validate
 

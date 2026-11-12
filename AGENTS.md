@@ -288,7 +288,7 @@ Each `SKILL.md` should include: purpose, inputs, outputs, preconditions, and ste
 - Testing depth expectations:
   - Do not weaken existing checks; add scenarios instead.
   - For query/fetch/index pipelines, assert both success and failure paths,
-    including partial-error `ExitCode` flag combinations.
+    including multi-phase `ExitCode` combinations.
   - Add mirrored entrypoint tests for `__main__.py` modules to verify `runnify`
     wiring and argument dispatch behavior.
 

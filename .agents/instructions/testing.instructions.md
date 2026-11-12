@@ -56,7 +56,7 @@ Enforcing `__all__`:
 For `src/pyarchivist/Wikimedia_Commons/main.py`, tests should include:
 
 - Happy-path query/fetch/index updates.
-- Query/fetch/index error paths and partial-error paths.
+- Query/fetch/index error paths, including runs where some items fail.
 - Exit flag assertions for `ExitCode` combinations.
 - Index formatting + parsing invariants using `_index_formatter` and
   `_INDEX_FORMAT_PATTERN`.
