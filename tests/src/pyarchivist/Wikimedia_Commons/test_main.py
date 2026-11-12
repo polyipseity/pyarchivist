@@ -312,3 +312,25 @@ async def test_retry_options_cover_connection_errors(
     assert captured["statuses"] == {429}
     exceptions = cast(set[type[Exception]], captured["exceptions"])
     assert {ClientConnectionError, ClientPayloadError} <= exceptions
+
+
+@pytest.mark.anyio
+async def test_unhandled_failure_keeps_its_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """An unhandled failure keeps its cause and reports ``GENERIC_ERROR``."""
+
+    def failing_session(*_args: object, **_kwargs: object) -> object:
+        """Fail session construction to exercise the outer handler."""
+        raise RuntimeError("boom")
+
+    _patch_session_class(monkeypatch, failing_session)
+    args = Args(inputs=("File:A.jpg",), dest=Path(tmp_path), index=None)
+
+    result = await archive(args)
+
+    assert len(result.errors) == 1
+    error = result.errors[0]
+    assert error.phase == "general"
+    assert "boom" in error.message
+    assert await main(args) == ExitCode.GENERIC_ERROR

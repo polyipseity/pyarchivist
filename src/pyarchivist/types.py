@@ -8,7 +8,7 @@ Backend-specific logic lives in the respective subpackages.
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import IntFlag, auto, unique
-from typing import ClassVar, final
+from typing import ClassVar, Literal, final
 
 from anyio import Path
 
@@ -18,7 +18,11 @@ __all__ = (
     "Args",
     "ArchiveError",
     "ArchiveResult",
+    "Phase",
 )
+
+"""Names every archive phase plus the fallback for unphased failures."""
+Phase = Literal["query", "fetch", "index", "general"]
 
 
 @final
@@ -104,12 +108,12 @@ class ArchiveError:
     """Represents an error that occurred during an archive operation.
 
     Attributes:
-        phase: the phase in which the error occurred (e.g. "query", "fetch", "index")
+        phase: the phase in which the error occurred (see `Phase`)
         title: the title of the item that caused the error
         message: a human-readable error message
     """
 
-    phase: str
+    phase: Phase
     title: str
     message: str
 

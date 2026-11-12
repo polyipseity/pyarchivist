@@ -150,7 +150,8 @@ def _credit_formatter(page: Page) -> str:
     collapsed; markers such as ``Unknown author`` fall back to a link to the
     description page.
     """
-    assert page.imageinfo is not None
+    if page.imageinfo is None:
+        raise ValueError(f"No image info for '{page.title}'")
 
     ii = page.imageinfo[0]
     emd = ii.extmetadata
@@ -300,7 +301,8 @@ async def _download(
     under the real name. A killed process can leave that ``.part`` behind; it
     never shadows the target and the next attempt overwrites it.
     """
-    assert page.imageinfo is not None
+    if page.imageinfo is None:
+        raise ValueError(f"No image info for '{page.title}'")
     ii = page.imageinfo[0]
     part = dest_file.with_name(f"{dest_file.name}.part")
     try:
@@ -549,9 +551,15 @@ async def archive(args: Args) -> ArchiveResult:
                         )
             finally:
                 await sess.close()
-    except Exception:
-        LOGGER.exception("Error")
-        all_errors.append(ArchiveError(phase="general", title="", message="Error"))
+    except Exception as exc:
+        LOGGER.exception("Archive run failed")
+        all_errors.append(
+            ArchiveError(
+                phase="general",
+                title="",
+                message=f"{type(exc).__name__}: {exc}",
+            )
+        )
 
     return ArchiveResult(
         downloaded=downloaded,

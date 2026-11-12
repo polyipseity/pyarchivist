@@ -53,6 +53,12 @@ def test_exit_code_bit_values() -> None:
     assert codes.SKIPPED == 16
 
 
+def test_phase_alias_is_exported() -> None:
+    """Verify the ``Phase`` alias is exported and present."""
+    assert "Phase" in pyarchivist_types.__all__
+    assert hasattr(pyarchivist_types, "Phase")
+
+
 def test_args_fields() -> None:
     """Verify Args has the expected fields."""
     fields = {f.name for f in dataclasses.fields(pyarchivist_types.Args)}
