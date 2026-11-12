@@ -184,7 +184,7 @@ async def test_trust_env_passed_to_client_session(
                     ArchiveError(phase="general", title="", message="g"),
                 ),
             ),
-            ExitCode.QUERY_ERROR_PARTIAL | ExitCode.GENERIC_ERROR,
+            ExitCode.QUERY_ERROR | ExitCode.GENERIC_ERROR,
         ),
         (
             ArchiveResult(
@@ -195,7 +195,7 @@ async def test_trust_env_passed_to_client_session(
                     ArchiveError(phase="index", title="", message="i"),
                 ),
             ),
-            ExitCode.FETCH_ERROR_PARTIAL | ExitCode.INDEX_ERROR,
+            ExitCode.FETCH_ERROR | ExitCode.INDEX_ERROR,
         ),
     ],
 )

@@ -112,7 +112,7 @@ async def test_query_failures_set_query_flag(
     )
 
     assert await _names(tmp_path) == []
-    assert code == ExitCode.QUERY_ERROR_PARTIAL
+    assert code == ExitCode.QUERY_ERROR
 
 
 @pytest.mark.anyio
@@ -145,7 +145,7 @@ async def test_query_bisect_isolates_failing_title(
     assert await _names(tmp_path) == ["First.jpg", "Second.jpg"]
 
     code = await main(args)
-    assert code == ExitCode.QUERY_ERROR_PARTIAL
+    assert code == ExitCode.QUERY_ERROR
 
 
 @pytest.mark.anyio
@@ -178,7 +178,7 @@ async def test_query_bisect_disabled_reports_one_batch_error(
     assert await _names(tmp_path) == []
 
     code = await main(args)
-    assert code == ExitCode.QUERY_ERROR_PARTIAL
+    assert code == ExitCode.QUERY_ERROR
 
 
 @pytest.mark.anyio

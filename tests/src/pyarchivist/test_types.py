@@ -35,13 +35,22 @@ def test_skipped_exit_code_shares_no_bits() -> None:
         pyarchivist_types.ExitCode.QUERY_ERROR,
         pyarchivist_types.ExitCode.FETCH_ERROR,
         pyarchivist_types.ExitCode.INDEX_ERROR,
-        pyarchivist_types.ExitCode.QUERY_ERROR_PARTIAL,
-        pyarchivist_types.ExitCode.FETCH_ERROR_PARTIAL,
     )
 
     assert pyarchivist_types.ExitCode.SKIPPED != 0
     for flag in error_flags:
         assert pyarchivist_types.ExitCode.SKIPPED & flag == 0
+
+
+def test_exit_code_bit_values() -> None:
+    """Verify each ``ExitCode`` member owns one distinct bit."""
+    codes = pyarchivist_types.ExitCode
+
+    assert codes.GENERIC_ERROR == 1
+    assert codes.QUERY_ERROR == 2
+    assert codes.FETCH_ERROR == 4
+    assert codes.INDEX_ERROR == 8
+    assert codes.SKIPPED == 16
 
 
 def test_args_fields() -> None:

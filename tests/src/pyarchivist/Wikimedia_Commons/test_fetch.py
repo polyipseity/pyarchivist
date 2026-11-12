@@ -480,17 +480,17 @@ async def test_skip_existing_after_sanitize(
 @pytest.mark.parametrize(
     "scenario,expected_written,expected_code,expected_downloaded",
     [
-        ("missing_imageinfo", [], ExitCode.FETCH_ERROR_PARTIAL, 0),
+        ("missing_imageinfo", [], ExitCode.FETCH_ERROR, 0),
         (
             "missing_imageinfo_partial",
             ["Good.jpg"],
-            ExitCode.FETCH_ERROR_PARTIAL,
+            ExitCode.FETCH_ERROR,
             1,
         ),
-        ("network_error", ["Good.jpg"], ExitCode.FETCH_ERROR_PARTIAL, 1),
-        ("stream_error", [], ExitCode.FETCH_ERROR_PARTIAL, 0),
-        ("timeout", [], ExitCode.FETCH_ERROR_PARTIAL, 0),
-        ("http_error", [], ExitCode.FETCH_ERROR_PARTIAL, 0),
+        ("network_error", ["Good.jpg"], ExitCode.FETCH_ERROR, 1),
+        ("stream_error", [], ExitCode.FETCH_ERROR, 0),
+        ("timeout", [], ExitCode.FETCH_ERROR, 0),
+        ("http_error", [], ExitCode.FETCH_ERROR, 0),
         ("corrupt_chunks", ["Corrupt.jpg"], ExitCode(0), 1),
     ],
 )

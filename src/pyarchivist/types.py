@@ -26,10 +26,9 @@ __all__ = (
 class ExitCode(IntFlag):
     """Exit code bits for failure phases and skipped-only runs.
 
-    The phase flags mark where a run failed, and each ``*_PARTIAL`` flag pairs
-    its phase flag with an explicit bit. ``GENERIC_ERROR`` covers a failure
-    outside the archive phases, and ``SKIPPED`` reports a run where every file
-    was already present. Bits combine when several conditions hold at once.
+    Each failure phase owns one bit, and ``SKIPPED`` marks a run where every
+    file was already present. Errors win over ``SKIPPED``, and a run that did
+    nothing exits 0.
     """
 
     __slots__: ClassVar = ()
@@ -38,10 +37,7 @@ class ExitCode(IntFlag):
     QUERY_ERROR = auto()
     FETCH_ERROR = auto()
     INDEX_ERROR = auto()
-    QUERY_ERROR_PARTIAL = QUERY_ERROR | 16
-    FETCH_ERROR_PARTIAL = FETCH_ERROR | 32
-    # Explicit bit: `auto()` would land on 16 or 32, already taken above.
-    SKIPPED = 64
+    SKIPPED = auto()
 
 
 @final

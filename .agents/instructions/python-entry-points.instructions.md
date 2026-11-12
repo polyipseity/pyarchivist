@@ -77,7 +77,7 @@ if __name__ == "__main__":
 
 2. **Argument handling**: Pyarchivist commands parse arguments via argparse inside `main()`. All entry points accept optional `argv` for testing compatibility.
 
-3. **Error handling**: Return an `ExitCode` instead of inventing numbers. Each failure sets only its phase flag (`QUERY_ERROR_PARTIAL`, `FETCH_ERROR_PARTIAL`, `INDEX_ERROR`), `GENERIC_ERROR` is left for failures outside those phases, and an all-skip run reports `SKIPPED`. A run with nothing to do and no error exits 0. Bits combine when a run hits several conditions; they are not a 0/1/2/3 ladder.
+3. **Error handling**: Return an `ExitCode` instead of inventing numbers. Each failure sets only its phase flag (`QUERY_ERROR`, `FETCH_ERROR`, `INDEX_ERROR`), `GENERIC_ERROR` is left for failures outside those phases, and an all-skip run reports `SKIPPED`. A run with nothing to do and no error exits 0. Bits combine when a run hits several conditions; they are not a 0/1/2/3 ladder.
 
 4. **Type hints**: Include complete type hints on `main()` and `__main__()` functions. Use `collections.abc.Sequence[str]` for argument lists.
 

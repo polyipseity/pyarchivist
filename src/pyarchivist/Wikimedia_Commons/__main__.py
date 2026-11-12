@@ -38,15 +38,15 @@ async def main(args: Args) -> ExitCode:
 def _archive_result_to_exit_code(result: ArchiveResult) -> ExitCode:
     """Translate an ``ArchiveResult`` into a phase ``ExitCode``.
 
-    Each error sets only its own phase flag, and a run that skipped every file
-    reports ``ExitCode.SKIPPED``. A run that did nothing is a clean exit.
+    Each error sets its own phase bit, and an all-skip run reports
+    ``ExitCode.SKIPPED``. A run that did nothing exits 0.
     """
     ec = ExitCode(0)
     for error in result.errors:
         if error.phase == "query":
-            ec |= ExitCode.QUERY_ERROR_PARTIAL
+            ec |= ExitCode.QUERY_ERROR
         elif error.phase == "fetch":
-            ec |= ExitCode.FETCH_ERROR_PARTIAL
+            ec |= ExitCode.FETCH_ERROR
         elif error.phase == "index":
             ec |= ExitCode.INDEX_ERROR
         else:

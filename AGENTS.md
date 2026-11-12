@@ -100,7 +100,7 @@ Validation order for non-trivial changes:
 
 - Verification & errors: downloads are checked against the API `mime` and `size`, streamed to `<filename>.part`, and `replace()`d into place. Index lines merge by case-folded on-disk filename, keep any prose already in the last paragraph, and go through `.<index>.tmp` + `replace()`. `skip_existing` is on by default and compares the stored size with the API size. Failures become `ArchiveError(phase=...)` entries, so one bad file does not abort the run unless `--fail-fast` is set.
 
-- Exit codes: each error sets only its own phase flag (`QUERY_ERROR_PARTIAL`, `FETCH_ERROR_PARTIAL`, `INDEX_ERROR`). `GENERIC_ERROR` is left for failures outside those phases, and a run where every file was already present exits with `SKIPPED`. A run that did nothing and hit no error exits 0.
+- Exit codes: each error sets only its own phase flag (`QUERY_ERROR`, `FETCH_ERROR`, `INDEX_ERROR`). `GENERIC_ERROR` is left for failures outside those phases, and a run where every file was already present exits with `SKIPPED`. A run that did nothing and hit no error exits 0.
 
 - Version & release single source-of-truth: bump `src/pyarchivist/meta.py::VERSION` and keep `pyproject.toml` in sync (there is a test `tests/pyarchivist/test___init__.py` that asserts this). Release commits must be GPG-signed and tag with `vX.Y.Z` as described below.
 
