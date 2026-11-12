@@ -65,12 +65,12 @@ class _QueryHTTPError(ValueError):
 def _fails_whole_batch(exc: BaseException) -> bool:
     """Return whether splitting the batch would only repeat the same failure.
 
-    A dropped connection, a timeout or a server error answers every smaller
-    batch the same way, so bisecting an outage turns one failed request into
-    roughly twice as many.
+    A dropped connection, a timeout, a rate limit or a server error answers
+    every smaller batch the same way, so bisecting an outage turns one failed
+    request into roughly twice as many.
     """
     if isinstance(exc, _QueryHTTPError):
-        return exc.status >= 500
+        return exc.status >= 500 or exc.status == 429
     return isinstance(exc, (OSError, ClientConnectionError, ClientPayloadError))
 
 
