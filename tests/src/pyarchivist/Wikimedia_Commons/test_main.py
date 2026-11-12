@@ -228,6 +228,39 @@ async def test_query_server_error_is_not_bisected(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["payload", "timeout", "client_error"])
+async def test_query_failure_classification(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str], mode: str
+) -> None:
+    """Transport failures skip bisecting; a 4xx answer still bisects."""
+    session = _FakeClientSession(
+        {"File:A.jpg": _page("File:A.jpg"), "File:B.jpg": _page("File:B.jpg")}
+    )
+    if mode == "payload":
+        session.api_error = ClientPayloadError("broken payload")
+    elif mode == "timeout":
+        session.api_error = TimeoutError("timed out")
+    else:
+        session.api_status = 400
+    _patch_client(monkeypatch, session)
+
+    result = await archive(
+        Args(
+            inputs=("File:A.jpg", "File:B.jpg"),
+            dest=Path(tmp_path),
+            index=None,
+            max_retries=1,
+            retry_delay=0,
+        )
+    )
+
+    assert [error.phase for error in result.errors] == ["query"] * (
+        1 if mode != "client_error" else 2
+    )
+    assert len(session.query_urls) == (1 if mode != "client_error" else 3)
+
+
+@pytest.mark.anyio
 async def test_client_session_timeout_and_connector_config(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:

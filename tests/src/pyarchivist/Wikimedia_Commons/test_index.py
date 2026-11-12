@@ -107,6 +107,46 @@ async def test_index_write_error_sets_index_flag(
 
 
 @pytest.mark.anyio
+async def test_index_cleanup_failure_keeps_write_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A failing temp deletion must not replace the write error."""
+    session = _FakeClientSession({"File:A.jpg": _page("File:A.jpg")})
+    session.file_bytes = b"ok"
+    _patch_client(monkeypatch, session)
+
+    original_write_text = cast(Any, Path.write_text)
+
+    async def failing_write_text(self: Path, text: str, **kwargs: Any) -> int:
+        """Fail before the temp file is written."""
+        if self.name == ".index.md.tmp":
+            raise OSError("index write failure")
+        return await original_write_text(self, text, **kwargs)
+
+    original_unlink = cast(Any, Path.unlink)
+
+    async def failing_unlink(self: Path, missing_ok: bool = False) -> None:
+        """Fail the cleanup of the temp file only."""
+        if self.name == ".index.md.tmp":
+            raise OSError("cleanup failure")
+        return await original_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "write_text", failing_write_text)
+    monkeypatch.setattr(Path, "unlink", failing_unlink)
+
+    result = await archive(
+        Args(
+            inputs=("File:A.jpg",),
+            dest=Path(tmp_path),
+            index=Path(tmp_path) / "index.md",
+        )
+    )
+
+    assert [error.phase for error in result.errors] == ["index"]
+    assert "index write failure" in result.errors[0].message
+
+
+@pytest.mark.anyio
 async def test_index_with_invalid_utf8_reports_index_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
 ) -> None:
@@ -262,10 +302,16 @@ async def test_indexing_updates_index_file(
     await archive(Args(inputs=("File:Zed.jpg",), dest=Path(tmp_path), index=index_path))
 
     lines = (await index_path.read_text(encoding="utf-8")).splitlines()
-    assert "Header" in lines
-    for line in expected_lines:
-        assert lines.count(line) == 1
-    assert sum(line.startswith("- [") for line in lines) == len(expected_lines)
+    paragraphs = "\n".join(lines).strip().split("\n\n")
+    entries = [
+        line
+        for paragraph in paragraphs
+        for line in paragraph.splitlines()
+        if line.startswith("- [")
+    ]
+    assert paragraphs[0].startswith("Header")
+    assert entries == sorted(expected_lines)
+    assert paragraphs[-1].splitlines()[-len(expected_lines) :] == sorted(expected_lines)
 
 
 @pytest.mark.anyio

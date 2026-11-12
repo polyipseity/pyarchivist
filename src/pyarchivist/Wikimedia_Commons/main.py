@@ -20,7 +20,7 @@ from aiohttp import (
     TCPConnector,
 )
 from aiohttp_retry import JitterRetry, RetryClient
-from anyio import Path
+from anyio import CancelScope, Path
 from asyncer import SoonValue, asyncify, create_task_group
 from pathvalidate import sanitize_filename
 from yarl import URL
@@ -332,8 +332,10 @@ async def _download(
             )
         await part.replace(dest_file)
     except BaseException:
-        # Wider than Exception so a cancelled transfer still removes its bytes.
-        await part.unlink(missing_ok=True)
+        # Shielded: a cancelled scope would otherwise fail the unlink at its first
+        # checkpoint and leave the partial bytes behind.
+        with CancelScope(shield=True):
+            await part.unlink(missing_ok=True)
         raise
 
 
@@ -372,8 +374,10 @@ async def _update_index(index: Path, entries: Sequence[tuple[str, str]]) -> None
     Entries are keyed by the case-folded on-disk filename because that is what an
     existing line encodes in its link target; keying by the display title would
     append a second line for a file that sanitization renamed, and a case-only
-    variant of the same name would add one too. Lines in the last paragraph that
-    are not entries stay where they are, in their original order. Rewriting
+    variant of the same name would add one too. Folding also means one line per
+    name on a case-insensitive filesystem, so a later case-variant title drops
+    the earlier line even when both files exist on a case-sensitive one. Lines in
+    the last paragraph that are not entries are hoisted to its top. Rewriting
     through a sibling temp file keeps the index intact if the process dies
     mid-write.
     """
@@ -401,11 +405,12 @@ async def _update_index(index: Path, entries: Sequence[tuple[str, str]]) -> None
         await temporary.write_text("\n\n".join(paragraphs) + "\n", **OPEN_TEXT_OPTIONS)
         await temporary.replace(index)
     except BaseException:
-        # A failing cleanup must not replace the error that caused it.
-        try:
-            await temporary.unlink(missing_ok=True)
-        except OSError:
-            pass
+        with CancelScope(shield=True):
+            try:
+                await temporary.unlink(missing_ok=True)
+            except OSError:
+                # Keep the write or replace failure as the reported cause.
+                pass
         raise
 
 

@@ -8,8 +8,12 @@ import pytest
 from anyio import Path
 
 from pyarchivist.meta import VERSION
-from pyarchivist.types import Args, ExitCode
-from pyarchivist.Wikimedia_Commons.__main__ import main, parser
+from pyarchivist.types import ArchiveError, ArchiveResult, Args, ExitCode
+from pyarchivist.Wikimedia_Commons.__main__ import (
+    _archive_result_to_exit_code,
+    main,
+    parser,
+)
 from pyarchivist.Wikimedia_Commons.main import archive
 from tests.src.pyarchivist.Wikimedia_Commons.fakes import (
     _CapturingClientSession,
@@ -157,6 +161,47 @@ async def test_trust_env_passed_to_client_session(
     )
 
     assert _CapturingClientSession.captured["trust_env"] is trust_env
+
+
+@pytest.mark.parametrize(
+    "result,expected",
+    [
+        (ArchiveResult(downloaded=0, skipped=0, errors=()), ExitCode(0)),
+        (
+            ArchiveResult(
+                downloaded=0,
+                skipped=0,
+                errors=(ArchiveError(phase="general", title="", message="boom"),),
+            ),
+            ExitCode.GENERIC_ERROR,
+        ),
+        (
+            ArchiveResult(
+                downloaded=1,
+                skipped=0,
+                errors=(
+                    ArchiveError(phase="query", title="File:A.jpg", message="q"),
+                    ArchiveError(phase="general", title="", message="g"),
+                ),
+            ),
+            ExitCode.QUERY_ERROR_PARTIAL | ExitCode.GENERIC_ERROR,
+        ),
+        (
+            ArchiveResult(
+                downloaded=1,
+                skipped=1,
+                errors=(
+                    ArchiveError(phase="fetch", title="File:A.jpg", message="f"),
+                    ArchiveError(phase="index", title="", message="i"),
+                ),
+            ),
+            ExitCode.FETCH_ERROR_PARTIAL | ExitCode.INDEX_ERROR,
+        ),
+    ],
+)
+def test_exit_code_mapping(result: ArchiveResult, expected: ExitCode) -> None:
+    """Phase flags combine; general failures stay apart from them."""
+    assert _archive_result_to_exit_code(result) == expected
 
 
 @pytest.mark.anyio

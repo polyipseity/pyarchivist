@@ -11,7 +11,7 @@ from os import PathLike
 from typing import ClassVar
 
 import pytest
-from anyio import Path, sleep
+from anyio import CancelScope, Path, sleep
 from yarl import URL
 
 """Public symbols exported by this module (none)."""
@@ -47,10 +47,12 @@ class _FakeResp:
         content_type: str = "image/jpeg",
         status: int = 200,
         fail_stream: bool = False,
+        cancel_scope: CancelScope | None = None,
     ) -> None:
-        """Store the payload, body chunks and response metadata."""
+        """Store the payload, body chunks, response metadata and cancel scope."""
         self._json = json_data
         self._text = text_data
+        self._cancel_scope = cancel_scope
         self.content = _FakeContent(chunks or [], fail=fail_stream)
         self.content_type = content_type
         self.status = status
@@ -67,7 +69,9 @@ class _FakeResp:
         return self
 
     async def __aexit__(self, *_exc: object) -> bool:
-        """Leave the response context without suppressing exceptions."""
+        """Leave the context, cancelling the configured scope on the way out."""
+        if self._cancel_scope is not None:
+            self._cancel_scope.cancel()
         return False
 
 
@@ -87,6 +91,7 @@ class _FakeClientSession:
         self.fail_stream = False
         self.file_error: Exception | None = None
         self.file_fail_on: str | None = None
+        self.cancel_scope: CancelScope | None = None
         self.query_urls: list[str] = []
         self.file_urls: list[str] = []
 
@@ -113,6 +118,7 @@ class _FakeClientSession:
             content_type=self.content_type,
             status=self.status,
             fail_stream=self.fail_stream,
+            cancel_scope=self.cancel_scope,
         )
 
     def _api_response(self, url: object) -> _FakeResp:

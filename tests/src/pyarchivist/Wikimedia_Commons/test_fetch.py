@@ -8,7 +8,7 @@ from logging import WARNING
 from os import PathLike
 
 import pytest
-from anyio import Path
+from anyio import CancelScope, Path, get_cancelled_exc_class
 
 from pyarchivist.types import Args, ExitCode
 from pyarchivist.Wikimedia_Commons.__main__ import main
@@ -159,6 +159,23 @@ async def test_stream_failure_leaves_no_partial_file(
 
     assert result.downloaded == 0
     assert [error.phase for error in result.errors] == ["fetch"]
+    assert await _names(tmp_path) == []
+
+
+@pytest.mark.anyio
+async def test_cancelled_download_removes_partial_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathLike[str]
+) -> None:
+    """A cancelled transfer deletes the bytes it already wrote."""
+    session = _FakeClientSession({"File:A.jpg": _page("File:A.jpg")})
+    session.file_bytes = b"partial"
+    _patch_client(monkeypatch, session)
+
+    with CancelScope() as scope:
+        session.cancel_scope = scope
+        with pytest.raises(get_cancelled_exc_class()):
+            await archive(Args(inputs=("File:A.jpg",), dest=Path(tmp_path), index=None))
+
     assert await _names(tmp_path) == []
 
 
