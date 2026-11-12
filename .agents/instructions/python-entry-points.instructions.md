@@ -77,11 +77,7 @@ if __name__ == "__main__":
 
 2. **Argument handling**: Pyarchivist commands parse arguments via argparse inside `main()`. All entry points accept optional `argv` for testing compatibility.
 
-3. **Error handling**: Use consistent exit codes:
-   - `0`: Success
-   - `1`: General/processing error
-   - `2`: Argument parsing error
-   - `3`: File/IO error (network timeout, permission denied, etc.)
+3. **Error handling**: Return an `ExitCode` instead of inventing numbers. Each failure sets only its phase flag (`QUERY_ERROR_PARTIAL`, `FETCH_ERROR_PARTIAL`, `INDEX_ERROR`), `GENERIC_ERROR` is left for failures outside those phases, and an all-skip run reports `SKIPPED`. A run with nothing to do and no error exits 0. Bits combine when a run hits several conditions; they are not a 0/1/2/3 ladder.
 
 4. **Type hints**: Include complete type hints on `main()` and `__main__()` functions. Use `collections.abc.Sequence[str]` for argument lists.
 
@@ -235,7 +231,7 @@ When creating or updating a pyarchivist `__main__.py`:
 - [ ] Include return type hints (`-> None` is typical)
 - [ ] Add module-level docstring with usage example
 - [ ] Add docstrings to `main()` and `__main__()`
-- [ ] Use appropriate exit codes (0, 1, 2, 3)
+- [ ] Use the right `ExitCode` flags rather than bare numbers
 - [ ] For network operations, use `AsyncClient` (httpx) inside `main()`
 - [ ] Test by importing `main()` directly in pytest with `@pytest.mark.anyio`
 - [ ] Run `ty check`, `ruff check`, and `pytest` before committing
